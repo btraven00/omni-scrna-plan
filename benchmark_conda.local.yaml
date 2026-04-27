@@ -1,0 +1,189 @@
+name: split-stages-plan
+id: split_stages_plan
+description: This benchmark lays out stages for each step of an scRNA-seq pipeline
+benchmarker: "Mark Robinson <mark.robinson@mls.uzh.ch>"
+# Benchmark configuration
+version: "0.0.2"
+# The default software environment for this benchmark.
+# One of: apptainer, conda, envmodules.
+software_backend: "conda"
+# Available software environments
+software_environments:
+    r_conda:
+        name: R conda env (some packages self built)
+        conda: envs/r.yml
+stages:
+    - id: one-data
+      outputs:
+        - id: rawdata.h5ad
+          path: "{dataset}.h5ad"
+        - id: rawdata.clusters_truth
+          path: "{dataset}.clusters_truth.tsv"
+        - id: rawdata.clusters_truth_num
+          path: "{dataset}.clusters_truth_num.txt"
+      modules:
+        - id: datasets
+          name: "R-based dataset downloads"
+          software_environment: r_conda
+          repository:
+            url: ../split-stages-plan-modules/datasets
+            commit: main
+          parameters:
+            - dataset_name: ["sc-mix"]
+    - id: two-filter
+      inputs:
+        - rawdata.h5ad
+      outputs:
+        - id: filtered.cellids
+          path: "{dataset}_cellids.txt.gz"
+      modules:
+        - id: filtering-r
+          name: "R-based cell-level filters"
+          software_environment: "r_conda"
+          repository:
+            url: ../split-stages-plan-modules/2-filter
+            commit: main
+          parameters:
+            - filter_type: ["manual", "scrapper-auto"]
+    - id: three-normalize
+      inputs:
+        - rawdata.h5ad
+        - filtered.cellids
+      outputs:
+        - id: normalized.h5
+          path: "{dataset}_normalized.h5"
+      modules:
+        - id: normalization-r
+          name: "R-based scRNA-seq normalization methods"
+          software_environment: "r_conda"
+          repository:
+            url: ../split-stages-plan-modules/3-normalize
+            commit: main
+          parameters:
+            - normalization_type: ["seurat_log1pCP10k", "scuttle_geometricSizeFactors"]
+    - id: four-select
+      inputs:
+        - normalized.h5
+      outputs:
+        - id: selected.genes
+          path: "{dataset}_selected.txt.gz"
+      modules:
+        - id: selection-r
+          name: "R-based scRNA-seq gene selection methods"
+          software_environment: "r_conda"
+          repository:
+            url: ../split-stages-plan-modules/4-select
+            commit: main
+          parameters:
+            - selection_type: ["seurat_vst", "scrapper_modelGeneVariances"]
+              number_selected: 2000
+
+  - id: five-pca
+    inputs:
+        - normalized.h5
+        - selected.genes
+    outputs:
+      - id: pca
+        path: "{dataset}_pca.h5"
+    modules:
+      - id: pca-scanpy
+        name: "scanpy PCA"
+        software_environment: "scanpy"
+        repository:
+          url: ../split-stages-plan-modules/scanpy
+          entrypoint: pca-scanpy
+          commit: main
+        parameters:
+          - param1: "value"
+
+#  - id: six-viz
+#    inputs:
+#        - 5-pca.pca
+#    outputs:
+#      - id: 6-viz.components
+#        path: "{dataset}_components.txt.gz"
+#    modules:
+#      - id: cool_method_1
+#        name: "the only method you will ever need"
+#        software_environment: "apptainer_env"
+#        repository:
+#          url: https://github.com/CHANGEME/my_method
+#          commit: deadbeef
+#        parameters:
+#          - param1: "value"
+
+#  - id: seven-integrate
+#    inputs:
+#        - 5-pca.pca
+#    outputs:
+#      - id: 7-integrate.integrated
+#        path: "{dataset}_integrated.txt.gz"
+#    modules:
+#      - id: integration_method_1
+#        name: "the only method you will ever need"
+#        software_environment: "apptainer_env"
+#        repository:
+#          url: https://github.com/CHANGEME/my_method
+#          commit: deadbeef
+#        parameters:
+#          - param1: "value"
+
+#  - id: eight-cluster
+#    inputs:
+#        - 5-pca.pca
+#        - 3-normalize.normalized
+#        - 7-integrate.integrated
+#    outputs:
+#      - id: 8a-cluster.graph
+#        path: "{dataset}_graph.txt.gz"
+#      - id: 8a-cluster.clusters
+#        path: "{dataset}_clusters.txt.gz"
+#    modules:
+#      - id: whizbang_clustering_1
+#        name: "the only method you will ever need"
+#        software_environment: "apptainer_env"
+#        repository:
+#          url: https://github.com/CHANGEME/my_method
+#          commit: deadbeef
+#        parameters:
+#          - param1: "value"
+
+#  - id: eight-annotate
+#    inputs:
+#        - 5-pca.pca
+#        - 3-normalize.normalized
+#        - 7-integrate.integrated
+#    outputs:
+#      - id: 8b-annotate.annotations
+#        path: "{dataset}_annotations.txt.gz"
+#    modules:
+#      - id: whizbang_prediction_1
+#        name: "the only method you will ever need"
+#        software_environment: "apptainer_env"
+#        repository:
+#          url: https://github.com/CHANGEME/my_method
+#          commit: deadbeef
+#        parameters:
+#          - param1: "value"
+
+#  - id: metrics
+#    inputs:
+#        - 5-pca.pca
+#        - 3-normalize.normalized
+#        - 6-viz.components
+#        - 7-integrate.integrated
+#        - 8a-cluster.clusters
+#        - 8a-cluster.graph
+#        - 8b-annotate.annotations
+#    outputs:
+#      - id: metrics.scores
+#        path: "{dataset}.scores.gz"
+#    modules:
+#      - id: strict_metric_1
+#        name: "a very well defined metric"
+#        software_environment: "apptainer_env"
+#        repository:
+#          url: https://github.com/CHANGEME/the_right_metric
+#          commit: c0ffee
+#        parameters:
+#          - foo: "bar"

@@ -1,5 +1,7 @@
 # OmniBenchmark outputs
 out/
+.obmr.lock
+/.obmr
 .snakemake/
 
 # Python
