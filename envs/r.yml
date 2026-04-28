@@ -8,6 +8,7 @@ dependencies:
   - r-base=4.5.3
   - bioconductor-edger >= 4.8.0
   - r-seurat>=5.0.0
+  - bioconductor-anndatar
   - bioconductor-dropletutils
   - bioconductor-geoquery
   - bioconductor-singlecellmultimodal

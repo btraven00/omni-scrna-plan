@@ -1,0 +1,19 @@
+---
+name: r_conda
+channels:
+  - https://prefix.dev/almost-conductor
+  - conda-forge
+  - bioconda
+  - nodefaults
+dependencies:
+  - python=3.11
+  - scanpy=1.10
+  - anndata
+  - numpy
+  - scipy
+  - pandas
+  - matplotlib
+  - seaborn
+  - scikit-learn
+  - h5py
+  - pytables
