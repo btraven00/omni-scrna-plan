@@ -19,6 +19,8 @@ software_environments:
 
 stages:
   - id: one-data
+    resources:
+      cores: 16
     outputs:
       - id: rawdata.h5ad
         path: "{dataset}.h5ad"
@@ -37,6 +39,8 @@ stages:
           - dataset_name: ["sc-mix"]
 
   - id: two-filter
+    resources:
+      cores: 2
     inputs:
       - rawdata.h5ad
     outputs:
@@ -53,6 +57,8 @@ stages:
           - filter_type: ["manual", "scrapper-auto"]
 
   - id: three-normalize
+    resources:
+      cores: 2
     inputs:
       - rawdata.h5ad
       - filtered.cellids
@@ -70,6 +76,8 @@ stages:
           - normalization_type: ["seurat_log1pCP10k", "scuttle_geometricSizeFactors"]
 
   - id: four-select
+    resources:
+      cores: 2
     inputs:
       - normalized.h5
     outputs:
@@ -87,6 +95,8 @@ stages:
             number_selected: 2000
 
 #  - id: five-pca
+#    resources:
+#      cores: 4
 #    inputs:
 #        - 3-normalize.normalized
 #        - 4-select.selected

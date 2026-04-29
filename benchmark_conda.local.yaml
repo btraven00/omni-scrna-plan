@@ -12,8 +12,19 @@ software_environments:
     r_conda:
         name: R conda env (some packages self built)
         conda: envs/r.yml
+    scanpy:
+        name: scanpy multi-module
+        conda: envs/scanpy.yml
+    scrapper:
+        name: scrapper multi-module
+        conda: envs/scrapper.yml
+    onlinepca_jl:
+        name: OnlinePCA.jl PCA module
+        conda: envs/onlinepca-jl.yml
 stages:
     - id: one-data
+      resources:
+        cores: 16
       outputs:
         - id: rawdata.h5ad
           path: "{dataset}.h5ad"
@@ -31,6 +42,8 @@ stages:
           parameters:
             - dataset_name: ["sc-mix"]
     - id: two-filter
+      resources:
+        cores: 2
       inputs:
         - rawdata.h5ad
       outputs:
@@ -46,6 +59,8 @@ stages:
           parameters:
             - filter_type: ["manual", "scrapper-auto"]
     - id: three-normalize
+      resources:
+        cores: 2
       inputs:
         - rawdata.h5ad
         - filtered.cellids
@@ -62,6 +77,8 @@ stages:
           parameters:
             - normalization_type: ["seurat_log1pCP10k", "scuttle_geometricSizeFactors"]
     - id: four-select
+      resources:
+        cores: 2
       inputs:
         - normalized.h5
       outputs:
@@ -77,24 +94,63 @@ stages:
           parameters:
             - selection_type: ["seurat_vst", "scrapper_modelGeneVariances"]
               number_selected: 2000
-
-  - id: five-pca
-    inputs:
+    - id: five-pca
+      resources:
+        cores: 4
+      inputs:
         - normalized.h5
         - selected.genes
-    outputs:
-      - id: pca
-        path: "{dataset}_pca.h5"
-    modules:
-      - id: pca-scanpy
-        name: "scanpy PCA"
-        software_environment: "scanpy"
-        repository:
-          url: ../split-stages-plan-modules/scanpy
-          entrypoint: pca-scanpy
-          commit: main
-        parameters:
-          - param1: "value"
+      outputs:
+        - id: pca
+          # path: "{dataset}_pca.h5"
+          # TODO: this needs https://github.com/omnibenchmark/omnibenchmark/pull/323 merged to work
+          path: "{name}_{params.solver}_n_{params.n_components}.h5"
+      modules:
+        - id: pca-scanpy
+          name: "scanpy PCA"
+          software_environment: "scanpy"
+          repository:
+            url: ../split-stages-plan-modules/scanpy
+            entrypoint: pca
+            commit: main
+          parameters:
+            - solver: [arpack, randomized]
+              n_components: 50
+              random_seed: 42
+        - id: pca-scrapper
+          name: "scrapper PCA"
+          software_environment: "scrapper"
+          repository:
+            url: ../split-stages-plan-modules/scrapper
+            entrypoint: pca
+            commit: main
+          parameters:
+            - solver: [irlba, random, exact]
+              n_components: 50
+              random_seed: 42
+    - id: five-pca-counts
+      resources:
+        cores: 4
+      inputs:
+        - rawdata.h5ad
+        - filtered.cellids
+        - selected.genes
+      outputs:
+        - id: pca
+          path: "{name}_{params.solver}_n_{params.n_components}.h5"
+      modules:
+        - id: pca-onlinepca-jl
+          name: "OnlinePCA.jl PCA (raw counts)"
+          software_environment: "onlinepca_jl"
+          repository:
+            url: ../split-stages-plan-modules/5-pca-onlinepca.jl
+            entrypoint: pca
+            commit: main
+          parameters:
+            - solver: [tenxpca_sqrt, tenxpca_log, tenxpca_raw]
+              n_components: 50
+              random_seed: 42
+
 
 #  - id: six-viz
 #    inputs:

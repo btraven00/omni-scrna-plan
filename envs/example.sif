@@ -1,9 +1,0 @@
-# PLACEHOLDER FILE - NOT A REAL SIF IMAGE
-# This is a placeholder to prevent validation errors.
-#
-# To create the actual SIF file, use one of:
-# 1. Build from definition: sudo apptainer build example.sif example.def
-# 2. Convert from Docker: ./docker_to_sif.sh your-docker-image example.sif
-# 3. Pull from registry: apptainer pull example.sif library://your-image
-#
-# Replace this file with your actual .sif image file.
