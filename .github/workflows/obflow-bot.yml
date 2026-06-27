@@ -142,11 +142,11 @@ jobs:
       - name: Build report
         run: |
           {
-            echo '| module | status | old | new | detail |'
-            echo '|---|---|---|---|---|'
+            echo '| stage | module | status | old | new | detail |'
+            echo '|---|---|---|---|---|---|'
             jq -r '
               def short: if test("^[0-9a-f]{7,40}$") then .[0:7] else . end;
-              .modules[] | "| \(.module) | \(.status) | `\(.old|short)` | `\(.new|short)` | \(.detail // "") |"
+              .modules[] | "| \(.stage // "") | \(.module) | \(.status) | `\(.old|short)` | `\(.new|short)` | \(.detail // "") |"
             ' result.json
           } > report.md
 
