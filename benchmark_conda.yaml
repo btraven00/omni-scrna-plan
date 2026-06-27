@@ -90,7 +90,7 @@ stages:
         software_environment: "scrapper"
         repository:
           url: https://github.com/omni-scrna/scrapper
-          commit: 18843a7
+          commit: 18843a792648c3df102fe325e82f25c088f65bee
           entrypoint: filter
 
   - id: NORM
@@ -106,14 +106,14 @@ stages:
         software_environment: "scrapper"
         repository:
           url: https://github.com/omni-scrna/scrapper
-          commit: 18843a7
+          commit: 18843a792648c3df102fe325e82f25c088f65bee
           entrypoint: normalize
       - id: nr-scanpy
         name: "Python-based scRNA-seq normalization methods"
         software_environment: "py_conda"
         repository:
           url: https://github.com/omni-scrna/scanpy
-          commit: 53eb292
+          commit: 7cf34728a5896a291a305cf4698283fc60d8544d
           entrypoint: normalize
         parameters:
           - flavor: ["log1pCP10k"]
@@ -143,7 +143,7 @@ stages:
         software_environment: "scrapper"
         repository:
           url: https://github.com/omni-scrna/scrapper
-          commit: 18843a7
+          commit: 18843a792648c3df102fe325e82f25c088f65bee
           entrypoint: select
         parameters:
           - number_selected: 2000
@@ -152,7 +152,7 @@ stages:
         software_environment: "scanpy"
         repository:
           url: https://github.com/omni-scrna/scanpy
-          commit: 53eb292
+          commit: 7cf34728a5896a291a305cf4698283fc60d8544d
           entrypoint: feat-select
         parameters:
           - flavor: ["pearson_residuals", "scanpy_seurat"]
@@ -174,7 +174,7 @@ stages:
         software_environment: "scanpy"
         repository:
           url: https://github.com/omni-scrna/scanpy
-          commit: main
+          commit: 7cf34728a5896a291a305cf4698283fc60d8544d
           entrypoint: pca
         parameters:
           - solver: [arpack, randomized]
@@ -185,7 +185,7 @@ stages:
         software_environment: "scrapper"
         repository:
           url: https://github.com/omni-scrna/scrapper
-          commit: main
+          commit: 18843a792648c3df102fe325e82f25c088f65bee
           entrypoint: pca
         parameters:
           - solver: [exact, irlba, random]
@@ -227,7 +227,7 @@ stages:
         software_environment: "scanpy"
         repository:
           url: https://github.com/omni-scrna/scanpy
-          commit: 53eb292
+          commit: 7cf34728a5896a291a305cf4698283fc60d8544d
           entrypoint: knn
         parameters:
           - n_neighbors: 15
@@ -262,7 +262,7 @@ stages:
         software_environment: "scanpy"
         repository:
           url: https://github.com/omni-scrna/scanpy
-          commit: 7cf3472
+          commit: 7cf34728a5896a291a305cf4698283fc60d8544d
           entrypoint: cluster
         parameters:
           - flavor: ["igraph", "leidenalg"]
