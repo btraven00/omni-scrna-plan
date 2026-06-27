@@ -1,0 +1,160 @@
+name: obflow retarget-modules
+
+# Post-merge coordinated shift. Once a testing branch is merged in the module
+# repos, each module's own omnibenchmark.yaml still points THIS plan's benchmark
+# entry at that branch. Comment on an issue:
+#
+#   /retarget-modules <target> [limit]
+#
+# and the bot opens one PR per module repo setting that benchmark's `ref` to
+# <target> (default `main`). Only the entry for THIS plan is touched;
+# templates.ref and other benchmarks are left alone. Optional <limit> caps the
+# number of PRs opened (handy for a low-noise debug run).
+#
+# Writes to the MODULE repos, which the default GITHUB_TOKEN can't reach. Uses
+# the omni-clanker GitHub App: its key is exchanged for a short-lived install
+# token at runtime. Set the OMNI_CLANKER_APP_ID and OMNI_CLANKER_PRIVATE_KEY
+# secrets — see README.md ("Creating the omni-clanker App").
+
+on:
+  issue_comment:
+    types: [created]
+
+concurrency:
+  group: obflow-retarget
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write
+
+env:
+  PLAN: benchmark_conda.yaml
+  OBFLOW_URL: https://github.com/btraven00/obflow/releases/download/nightly/obflow-linux-amd64.tar.gz
+
+jobs:
+  retarget:
+    if: >-
+      startsWith(github.event.comment.body, '/retarget-modules') &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Acknowledge
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api -X POST \
+            "repos/${{ github.repository }}/issues/comments/${{ github.event.comment.id }}/reactions" \
+            -f content=eyes
+
+      - name: Parse command
+        id: cmd
+        env:
+          COMMENT_BODY: ${{ github.event.comment.body }}
+        run: |
+          target="$(printf '%s' "$COMMENT_BODY" | awk 'NR==1{print $2}')"
+          limit="$(printf  '%s' "$COMMENT_BODY" | awk 'NR==1{print $3}')"
+          [ -z "$target" ] && target=main
+          echo "target=${target}" >> "$GITHUB_OUTPUT"
+          echo "limit=${limit}"   >> "$GITHUB_OUTPUT"
+
+      # The omni-clanker GitHub App provides cross-repo write access; the default
+      # GITHUB_TOKEN only reaches this repo. We exchange the App's private key for
+      # a short-lived installation token at runtime (see README to create the App).
+      - name: Check app credentials
+        env:
+          APP_ID: ${{ secrets.OMNI_CLANKER_APP_ID }}
+          APP_PRIVATE_KEY: ${{ secrets.OMNI_CLANKER_PRIVATE_KEY }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ -z "$APP_ID" ] || [ -z "$APP_PRIVATE_KEY" ]; then
+            gh issue comment "${{ github.event.issue.number }}" \
+              --body "❌ \`/retarget-modules\` needs the omni-clanker App secrets (\`OMNI_CLANKER_APP_ID\`, \`OMNI_CLANKER_PRIVATE_KEY\`). See the workflow README."
+            exit 1
+          fi
+
+      - name: Mint module-repo token
+        id: app
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.OMNI_CLANKER_APP_ID }}
+          private-key: ${{ secrets.OMNI_CLANKER_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}   # org-wide install token
+
+      - uses: actions/checkout@v4
+
+      - name: Install obflow
+        run: |
+          curl -fsSL "$OBFLOW_URL" | tar -xz
+          install -m 0755 obflow-linux-amd64 /usr/local/bin/obflow
+
+      - name: Retarget module repos
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          APP_TOKEN: ${{ steps.app.outputs.token }}
+          TARGET: ${{ steps.cmd.outputs.target }}
+          LIMIT: ${{ steps.cmd.outputs.limit }}
+          PROJECT: ${{ github.server_url }}/${{ github.repository }}
+        run: |
+          set -uo pipefail
+          land_branch="obflow/retarget-${TARGET//\//-}"
+          : > report.md
+          echo "| repo | status | pr |" >> report.md
+          echo "|---|---|---|" >> report.md
+
+          count=0
+          while read -r url; do
+            if [ -n "$LIMIT" ] && [ "$count" -ge "$LIMIT" ]; then
+              echo "| _(stopped at limit $LIMIT)_ |  |  |" >> report.md
+              break
+            fi
+            slug="${url#https://github.com/}"; slug="${slug%.git}"
+            work="$(mktemp -d)"
+            if ! git clone --depth 1 "https://x-access-token:${APP_TOKEN}@github.com/${slug}.git" "$work" 2>/dev/null; then
+              echo "| \`$slug\` | clone-failed |  |" >> report.md; rm -rf "$work"; continue
+            fi
+            omni="$work/omnibenchmark.yaml"
+            if [ ! -f "$omni" ]; then
+              echo "| \`$slug\` | no-omnibenchmark |  |" >> report.md; rm -rf "$work"; continue
+            fi
+
+            res="$(obflow plan retarget "$omni" --project "$PROJECT" --plan "$PLAN" --to "$TARGET" --json)"
+            status="$(printf '%s' "$res" | jq -r .status)"
+            if [ "$status" != "retargeted" ]; then
+              echo "| \`$slug\` | $status |  |" >> report.md; rm -rf "$work"; continue
+            fi
+
+            git -C "$work" config user.name  "github-actions[bot]"
+            git -C "$work" config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git -C "$work" checkout -B "$land_branch" >/dev/null 2>&1
+            git -C "$work" commit -am "chore: retarget omnibenchmark.yaml ref -> ${TARGET}" >/dev/null
+            git -C "$work" push -f origin "$land_branch" >/dev/null 2>&1
+
+            pr="$(gh pr list --repo "$slug" --head "$land_branch" --state open --json url -q '.[0].url')"
+            if [ -z "$pr" ]; then
+              pr="$(gh pr create --repo "$slug" --base main --head "$land_branch" \
+                --title "chore: retarget benchmark ref -> ${TARGET}" \
+                --body "Set this plan's benchmark \`ref\` to \`${TARGET}\` after landing. Opened by obflow retarget-modules.")"
+            fi
+            echo "| \`$slug\` | retargeted | $pr |" >> report.md
+            count=$((count + 1))
+            rm -rf "$work"
+          done < <(obflow plan repos "$PLAN" --json | jq -r '.[]')
+
+      - name: Report
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NUMBER: ${{ github.event.issue.number }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+          TARGET: ${{ steps.cmd.outputs.target }}
+        run: |
+          if [ "${{ job.status }}" = "success" ] && [ -f report.md ]; then
+            gh api -X POST "repos/${{ github.repository }}/issues/comments/${COMMENT_ID}/reactions" -f content=+1 >/dev/null
+            { echo "📌 Retargeted module benchmark refs → \`${TARGET}\`:"; echo; cat report.md; } > reply.md
+            gh issue comment "$NUMBER" --body-file reply.md
+          else
+            gh api -X POST "repos/${{ github.repository }}/issues/comments/${COMMENT_ID}/reactions" -f content=-1 >/dev/null
+            gh issue comment "$NUMBER" \
+              --body "❌ \`/retarget-modules\` failed — see the [run log](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})."
+          fi
