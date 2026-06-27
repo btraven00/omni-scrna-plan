@@ -113,7 +113,7 @@ stages:
         software_environment: "py_conda"
         repository:
           url: https://github.com/omni-scrna/scanpy
-          commit: 53eb292
+          commit: 7cf3472
           entrypoint: normalize
         parameters:
           - flavor: ["log1pCP10k"]
@@ -133,7 +133,7 @@ stages:
         software_environment: "seurat"
         repository:
           url: https://github.com/omni-scrna/seurat
-          commit: ccb7018
+          commit: 537d178
           entrypoint: select
         parameters:
           - selection_type: ["seurat_vst", "seurat_vst_batch"]
@@ -152,7 +152,7 @@ stages:
         software_environment: "scanpy"
         repository:
           url: https://github.com/omni-scrna/scanpy
-          commit: 53eb292
+          commit: 7cf3472
           entrypoint: feat-select
         parameters:
           - flavor: ["pearson_residuals", "scanpy_seurat"]
@@ -174,7 +174,7 @@ stages:
         software_environment: "scanpy"
         repository:
           url: https://github.com/omni-scrna/scanpy
-          commit: 53eb292
+          commit: 7cf3472
           entrypoint: pca
         parameters:
           - solver: [arpack, randomized]
@@ -205,14 +205,14 @@ stages:
         software_environment: "metrics"
         repository:
           url: https://github.com/omni-scrna/metrics
-          commit: 646f1e4
+          commit: 257c952
           entrypoint: embedding-py
       - id: em-metrics-r
         name: "Embedding metrics in R"
         software_environment: "metrics"
         repository:
           url: https://github.com/omni-scrna/metrics
-          commit: 646f1e4
+          commit: 257c952
           entrypoint: embedding-r
 
   - id: NNG
@@ -227,7 +227,7 @@ stages:
         software_environment: "scanpy"
         repository:
           url: https://github.com/omni-scrna/scanpy
-          commit: 53eb292
+          commit: 7cf3472
           entrypoint: knn
         parameters:
           - n_neighbors: 15
@@ -247,7 +247,7 @@ stages:
         software_environment: "metrics"
         repository:
           url: https://github.com/omni-scrna/metrics
-          commit: 646f1e4
+          commit: 257c952
           entrypoint: graph-r
 
   - id: CLUST
@@ -330,7 +330,7 @@ stages:
         software_environment: "seurat"
         repository:
           url: https://github.com/omni-scrna/seurat
-          commit: ccb7018
+          commit: 537d178
           entrypoint: integrate
         parameters:
           - method: [rpca]
