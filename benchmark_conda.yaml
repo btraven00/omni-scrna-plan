@@ -62,7 +62,7 @@ stages:
         software_environment: r_conda
         repository:
           url: https://github.com/omni-scrna/1-data
-          commit: main
+          commit: harmonize-argparsing
         parameters:
           #- dataset_name: "be1-subset"
           #  batch_var: Sample
@@ -90,7 +90,7 @@ stages:
         software_environment: "scrapper"
         repository:
           url: https://github.com/omni-scrna/scrapper
-          commit: main
+          commit: harmonize-argparsing
           entrypoint: filter
 
   - id: NORM
@@ -106,14 +106,14 @@ stages:
         software_environment: "scrapper"
         repository:
           url: https://github.com/omni-scrna/scrapper
-          commit: main
+          commit: harmonize-argparsing
           entrypoint: normalize
       - id: nr-scanpy
         name: "Python-based scRNA-seq normalization methods"
         software_environment: "py_conda"
         repository:
           url: https://github.com/omni-scrna/scanpy
-          commit: main
+          commit: harmonize-argparsing
           entrypoint: normalize
         parameters:
           - flavor: ["log1pCP10k"]
@@ -133,7 +133,7 @@ stages:
         software_environment: "seurat"
         repository:
           url: https://github.com/omni-scrna/seurat
-          commit: main
+          commit: harmonize-argparsing
           entrypoint: select
         parameters:
           - selection_type: ["seurat_vst", "seurat_vst_batch"]
@@ -143,7 +143,7 @@ stages:
         software_environment: "scrapper"
         repository:
           url: https://github.com/omni-scrna/scrapper
-          commit: main
+          commit: harmonize-argparsing
           entrypoint: select
         parameters:
           - number_selected: 2000
@@ -152,7 +152,7 @@ stages:
         software_environment: "scanpy"
         repository:
           url: https://github.com/omni-scrna/scanpy
-          commit: main
+          commit: harmonize-argparsing
           entrypoint: feat-select
         parameters:
           - flavor: ["pearson_residuals", "scanpy_seurat"]
@@ -174,7 +174,7 @@ stages:
         software_environment: "scanpy"
         repository:
           url: https://github.com/omni-scrna/scanpy
-          commit: main
+          commit: harmonize-argparsing
           entrypoint: pca
         parameters:
           - solver: [arpack, randomized]
@@ -185,7 +185,7 @@ stages:
         software_environment: "scrapper"
         repository:
           url: https://github.com/omni-scrna/scrapper
-          commit: main
+          commit: harmonize-argparsing
           entrypoint: pca
         parameters:
           - solver: [exact, irlba, random]
@@ -205,14 +205,14 @@ stages:
         software_environment: "metrics"
         repository:
           url: https://github.com/omni-scrna/metrics
-          commit: main
+          commit: harmonize-argparsing
           entrypoint: embedding-py
       - id: em-metrics-r
         name: "Embedding metrics in R"
         software_environment: "metrics"
         repository:
           url: https://github.com/omni-scrna/metrics
-          commit: main
+          commit: harmonize-argparsing
           entrypoint: embedding-r
 
   - id: NNG
@@ -227,7 +227,7 @@ stages:
         software_environment: "scanpy"
         repository:
           url: https://github.com/omni-scrna/scanpy
-          commit: main
+          commit: harmonize-argparsing
           entrypoint: knn
         parameters:
           - n_neighbors: 15
@@ -247,7 +247,7 @@ stages:
         software_environment: "metrics"
         repository:
           url: https://github.com/omni-scrna/metrics
-          commit: main
+          commit: harmonize-argparsing
           entrypoint: graph-r
 
   - id: CLUST
@@ -262,7 +262,7 @@ stages:
         software_environment: "scanpy"
         repository:
           url: https://github.com/omni-scrna/scanpy
-          commit: main
+          commit: harmonize-argparsing
           entrypoint: cluster
         parameters:
           - flavor: ["igraph", "leidenalg"]
@@ -273,7 +273,7 @@ stages:
         software_environment: "seurat"
         repository:
           url: https://github.com/omni-scrna/seurat
-          commit: main
+          commit: harmonize-argparsing
           entrypoint: cluster
         parameters:
           - resolution: [0.5, 1.0]
@@ -302,7 +302,7 @@ stages:
         software_environment: "metrics"
         repository:
           url: https://github.com/omni-scrna/metrics
-          commit: main
+          commit: harmonize-argparsing
           entrypoint: cluster-r
 
   - id: INTG8
@@ -321,7 +321,7 @@ stages:
         software_environment: "integrate"
         repository:
           url: https://github.com/omni-scrna/7-integrate
-          commit: main
+          commit: harmonize-argparsing
           entrypoint: harmony-r
         parameters:
           - theta: [0.1, 2]
@@ -330,7 +330,7 @@ stages:
         software_environment: "seurat"
         repository:
           url: https://github.com/omni-scrna/seurat
-          commit: main
+          commit: harmonize-argparsing
           entrypoint: integrate
         parameters:
           - method: [rpca]
@@ -340,7 +340,7 @@ stages:
         software_environment: "integrate-py"
         repository:
           url: https://github.com/omni-scrna/7-integrate-py
-          commit: main
+          commit: harmonize-argparsing
           entrypoint: scanorama
         parameters:
           - knn: [20]
@@ -358,7 +358,7 @@ stages:
       software_environment: annotate
       repository:
         url: https://github.com/omni-scrna/9-annotate
-        commit: main
+        commit: harmonize-argparsing
       parameters:
         - reference: ["HumanPrimaryCellAtlasData", "BlueprintEncodeData"]
 
