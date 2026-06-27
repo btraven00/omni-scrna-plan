@@ -1,0 +1,226 @@
+name: obflow bot
+
+# ChatOps for the benchmark plan. Comment on any PR or issue:
+#
+#   /pin-commits [ref]     freeze module commits to SHAs (a deliberate freeze is
+#                          never re-pinned; SHAs are abbreviated like the plan)
+#   /track-branch <branch> point modules at <branch>, where that branch exists
+#
+# On a PR the change is committed onto that PR's branch; on an issue it opens a
+# dedicated PR. See README.md in this directory.
+
+on:
+  issue_comment:
+    types: [created]
+
+concurrency:
+  group: obflow-bot-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+env:
+  PLAN: benchmark_conda.yaml
+  PIN_BRANCH: obflow/plan-update
+  OBFLOW_URL: https://github.com/btraven00/obflow/releases/download/nightly/obflow-linux-amd64.tar.gz
+
+jobs:
+  bot:
+    # One of our commands, from someone with write access.
+    if: >-
+      (startsWith(github.event.comment.body, '/pin-commits') ||
+       startsWith(github.event.comment.body, '/track-branch')) &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Acknowledge
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api -X POST \
+            "repos/${{ github.repository }}/issues/comments/${{ github.event.comment.id }}/reactions" \
+            -f content=eyes
+
+      - name: Parse command
+        id: cmd
+        env:
+          # Via env, never inline — the comment body is attacker-controlled.
+          COMMENT_BODY: ${{ github.event.comment.body }}
+        run: |
+          verb="$(printf '%s' "$COMMENT_BODY" | awk 'NR==1{print $1}')"
+          arg="$(printf '%s'  "$COMMENT_BODY" | awk 'NR==1{print $2}')"
+          case "$verb" in
+            /pin-commits)
+              echo "op=pin" >> "$GITHUB_OUTPUT"
+              echo "cmsg=chore: pin module commits${arg:+ ($arg)}" >> "$GITHUB_OUTPUT"
+              echo "noun=Pinned module commits" >> "$GITHUB_OUTPUT"
+              ;;
+            /track-branch)
+              if [ -z "$arg" ]; then echo "bad=true" >> "$GITHUB_OUTPUT"; fi
+              echo "op=track" >> "$GITHUB_OUTPUT"
+              echo "cmsg=chore: track branch ${arg}" >> "$GITHUB_OUTPUT"
+              echo "noun=Tracking branch \`${arg}\`" >> "$GITHUB_OUTPUT"
+              ;;
+          esac
+          echo "arg=${arg}" >> "$GITHUB_OUTPUT"
+
+      - name: Reject malformed command
+        if: steps.cmd.outputs.bad == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api -X POST \
+            "repos/${{ github.repository }}/issues/comments/${{ github.event.comment.id }}/reactions" \
+            -f content=-1
+          gh issue comment "${{ github.event.issue.number }}" \
+            --body "❌ \`/track-branch\` needs a branch name, e.g. \`/track-branch main\`."
+          exit 1
+
+      # Decide where the result lands: onto this PR's branch, or a fresh PR.
+      - name: Detect context
+        id: ctx
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IS_PR: ${{ github.event.issue.pull_request.url != '' }}
+          NUMBER: ${{ github.event.issue.number }}
+        run: |
+          mode=fresh
+          head=""
+          if [ "$IS_PR" = "true" ]; then
+            cross="$(gh pr view "$NUMBER" --repo "${{ github.repository }}" --json isCrossRepository -q .isCrossRepository)"
+            if [ "$cross" = "false" ]; then
+              # Same-repo PR: we can push to its branch. A fork PR (cross-repo)
+              # falls back to a fresh PR, since GITHUB_TOKEN can't push there.
+              mode=pr
+              head="$(gh pr view "$NUMBER" --repo "${{ github.repository }}" --json headRefName -q .headRefName)"
+            fi
+          fi
+          echo "mode=${mode}" >> "$GITHUB_OUTPUT"
+          echo "head=${head}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.ctx.outputs.head || github.event.repository.default_branch }}
+
+      - name: Install obflow
+        run: |
+          curl -fsSL "$OBFLOW_URL" | tar -xz
+          install -m 0755 obflow-linux-amd64 /usr/local/bin/obflow
+
+      # Public omni-scrna modules need no auth for `git ls-remote`. For private
+      # modules, set a MODULES_TOKEN secret (a PAT with repo:read); wired in here
+      # (no-op when unset).
+      - name: Configure git auth for private modules
+        env:
+          MODULES_TOKEN: ${{ secrets.MODULES_TOKEN }}
+        run: |
+          if [ -n "$MODULES_TOKEN" ]; then
+            git config --global \
+              url."https://x-access-token:${MODULES_TOKEN}@github.com/".insteadOf \
+              "https://github.com/"
+          fi
+
+      - name: Run obflow
+        env:
+          OP: ${{ steps.cmd.outputs.op }}
+          ARG: ${{ steps.cmd.outputs.arg }}
+        run: |
+          if [ "$OP" = "pin" ]; then
+            if [ -n "$ARG" ]; then
+              obflow plan pin --remote --ref "$ARG" --json "$PLAN" > result.json
+            else
+              obflow plan pin --remote --json "$PLAN" > result.json
+            fi
+          else
+            obflow plan track "$ARG" --json "$PLAN" > result.json
+          fi
+          cat result.json
+
+      - name: Build report
+        run: |
+          {
+            echo '| stage | module | status | old | new | detail |'
+            echo '|---|---|---|---|---|---|'
+            jq -r '
+              def short: if test("^[0-9a-f]{7,40}$") then .[0:7] else . end;
+              .modules[] | "| \(.stage // "") | \(.module) | \(.status) | `\(.old|short)` | `\(.new|short)` | \(.detail // "") |"
+            ' result.json
+          } > report.md
+
+      # --- PR mode: commit straight onto the PR's branch ----------------------
+      - name: Commit onto PR branch
+        id: commit
+        if: steps.ctx.outputs.mode == 'pr'
+        run: |
+          if git diff --quiet -- "$PLAN"; then
+            echo "No changes."
+            exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$PLAN"
+          git commit -m "${{ steps.cmd.outputs.cmsg }}"
+          git push origin "HEAD:${{ steps.ctx.outputs.head }}"
+          echo "pushed=true" >> "$GITHUB_OUTPUT"
+
+      # --- Fresh mode: open/update a dedicated PR -----------------------------
+      - name: Open/update PR
+        id: cpr
+        if: steps.ctx.outputs.mode == 'fresh'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: ${{ env.PIN_BRANCH }}
+          base: ${{ github.event.repository.default_branch }}
+          commit-message: ${{ steps.cmd.outputs.cmsg }}
+          title: ${{ steps.cmd.outputs.cmsg }}
+          labels: obflow-bot
+          body: Updating the plan… (report attached below)
+
+      - name: Attach report to PR body
+        if: steps.ctx.outputs.mode == 'fresh' && steps.cpr.outputs.pull-request-number
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          {
+            echo "${{ steps.cmd.outputs.noun }}, requested by @${{ github.event.comment.user.login }} via comment."
+            echo
+            cat report.md
+            echo
+            echo 'Merge to apply.'
+          } > pr-body.md
+          gh pr edit "${{ steps.cpr.outputs.pull-request-number }}" --body-file pr-body.md
+
+      # --- Report back to the commenter ---------------------------------------
+      - name: Reply
+        if: always() && steps.cmd.outputs.bad != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NUMBER: ${{ github.event.issue.number }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+          NOUN: ${{ steps.cmd.outputs.noun }}
+        run: |
+          react() { gh api -X POST "repos/${{ github.repository }}/issues/comments/${COMMENT_ID}/reactions" -f content="$1" >/dev/null; }
+
+          if [ "${{ job.status }}" != "success" ]; then
+            react "-1"
+            gh issue comment "$NUMBER" \
+              --body "❌ obflow bot failed — see the [run log](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})."
+            exit 0
+          fi
+
+          react "+1"
+          {
+            if [ "${{ steps.ctx.outputs.mode }}" = "pr" ] && [ "${{ steps.commit.outputs.pushed }}" = "true" ]; then
+              echo "📌 ${NOUN} onto this PR's branch (\`${{ steps.ctx.outputs.head }}\`)."
+            elif [ -n "${{ steps.cpr.outputs.pull-request-number }}" ]; then
+              echo "📌 ${NOUN} → ${{ steps.cpr.outputs.pull-request-url }}"
+            else
+              echo "✅ Nothing to change — plan already matches."
+            fi
+            echo
+            cat report.md
+          } > reply.md
+          gh issue comment "$NUMBER" --body-file reply.md
