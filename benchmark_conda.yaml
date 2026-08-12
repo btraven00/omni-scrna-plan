@@ -124,13 +124,15 @@ stages:
         path: "{dataset}_cellids.txt.gz"
       - id: filtered_featureids
         path: "{dataset}_featureids.txt.gz"
+      - id: size_factor_tsv
+        path: "{dataset}_size_factors.tsv"
     modules:
       - id: fi-scrapper
         name: "scrapper-style filtering"
         software_environment: "scrapper"
         repository:
           url: https://github.com/omni-scrna/scrapper
-          commit: 444a80b
+          commit: 985389f
           entrypoint: filter
 
   - id: NORM
@@ -187,7 +189,7 @@ stages:
           - d-pca
         repository:
           url: https://github.com/omni-scrna/seurat
-          commit: ac9c9f5
+          commit: f913675 # ac9c9f5
           entrypoint: select
         parameters:
           - selection_type: ["seurat_vst", "seurat_vst_batch"]
@@ -592,3 +594,19 @@ stages:
       - factorization_type: ["newwave", "scgbm", "glmpca"]
         n_dim: 4
         random_seed: 42
+
+  - id: NORM-M
+    inputs:
+      - pcas_tsv
+      - size_factor_tsv
+    outputs:
+      - id: normalization_metrics
+        path: "{dataset}_normalization_metrics.json"
+    modules:
+      - id: nm-metrics-r
+        name: "Normalization metrics in R"
+        software_environment: "metrics"
+        repository:
+          url: https://github.com/omni-scrna/metrics
+          commit: norm-m
+          entrypoint: normalization-r
