@@ -70,14 +70,19 @@ stages:
       - id: properties_info
         path: "{dataset}_properties.yaml"
     modules:
-      - id: be1-test
+      # The module id IS {dataset}: api 0.4 passes it as --name, and the stage's
+      # outputs are "{dataset}.h5ad" etc. omni-data copies a multi-file download
+      # under its own basenames, so this id must match the stem the files are
+      # published with (be1.h5ad, be1_properties.yaml, ...). Renaming it to
+      # be1-test made every output miss.
+      - id: be1
         name: "be1 fixture via omni-data https://"
         software_environment: omni_data
         repository:
           url: https://github.com/btraven00/omni-data
-          # TODO: repin once omni-data's --uri_type lands. eb4d368 predates it
-          # and rejects unknown arguments, so this module dies until then.
-          commit: eb4d368b5e83b26389e6047dd8bad6badede78f8
+          # 80611e8 (merge of omni-data#1) is the first commit that understands
+          # --uri_type; eb4d368 rejects it as an unknown argument.
+          commit: 80611e83d13c8bd0d15fbc033c6a5e1a7900a0b8
         parameters:
           # Same fixture as fixtures/DATA
           #
@@ -87,15 +92,18 @@ stages:
           - uri: https://omnibenchmark.mls.uzh.ch/datasets/be1-fixture/
             uri_type: directory
 
-      - id: pbmc
-        name: "pbmc multimodal (SCT counts) via omni-data file://"
-        software_environment: omni_data
-        repository:
-          url: https://github.com/btraven00/omni-data
-          commit: eb4d368b5e83b26389e6047dd8bad6badede78f8
-        parameters:
-          # TODO: publish URL
-          - uri: file:///home/b/phd/data/pbmc_omnidata
+      # Commented out for e2e runs on the fixture: full pbmc is 157k cells and
+      # every downstream stage pays for it (PCA alone peaks ~13GB per job).
+      # Uncomment for a real benchmark run.
+      # - id: pbmc
+      #   name: "pbmc multimodal (SCT counts) via omni-data file://"
+      #   software_environment: omni_data
+      #   repository:
+      #     url: https://github.com/btraven00/omni-data
+      #     commit: eb4d368b5e83b26389e6047dd8bad6badede78f8
+      #   parameters:
+      #     # TODO: publish URL
+      #     - uri: file:///home/b/phd/data/pbmc_omnidata
   - id: FILT
     inputs:
       - rawdata_h5ad
