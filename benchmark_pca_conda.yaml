@@ -1,0 +1,316 @@
+name: split-stages-plan
+id: split_stages_plan
+description: This benchmark lays out stages for each step of an scRNA-seq pipeline
+benchmarker: "Mark Robinson <mark.robinson@mls.uzh.ch>"
+
+# Benchmark configuration
+version: "0.1.0"
+# 0.4.0, not 0.5: at >=0.5 omnibenchmark passes --name=module_id instead of the
+# dataset stem, and 22 files across 15 module repos build outputs as
+# "{name}_suffix" -> MissingOutputException. (0.6.0 isn't a valid api_version at
+# all; the enum stops at 0.5.0. The ob *CLI* is 0.6.0 -- different number line.)
+api_version: "0.4.0"
+
+provenance:
+  canonical_url: https://raw.githubusercontent.com/omni-scrna/split-stages-plan/refs/heads/main/benchmark_conda.yaml
+
+# The default software environment for this benchmark.
+# One of: apptainer, conda, envmodules.
+software_backend: "conda"
+
+# Available software environments
+software_environments:
+  r_conda:
+    name: R conda env (some packages self built)
+    conda: envs/r.yml
+  scanpy:
+    name: scanpy multi-module
+    conda: envs/scanpy.yml
+  scrapper:
+    name: scrapper multi-module
+    conda: envs/scrapper.yml
+  seurat:
+    name: seurat multi-module
+    conda: envs/seurat.yml
+  metrics:
+    name: metrics env
+    conda: envs/metrics.yaml
+  py_conda:
+    name: Python conda env
+    conda: envs/py.yml
+  integrate:
+    name: integration env
+    conda: envs/integrate.yml
+  annotate:
+    name: annotate env
+    conda: envs/annotate.yml
+  integrate-py:
+    name: integration env
+    conda: envs/integrate-py.yml
+  scshc:
+    name: scSHC cluster significance env
+    conda: envs/scshc.yml
+  omni_data:
+    name: omni-data fixture loader
+    conda: envs/omni-data.yml
+  rapids_singlecell:
+    name: rapids-singlecell GPU env (cu13 wheels; needs an NVIDIA GPU + CUDA 13 driver)
+    conda: envs/rapids-singlecell.yml
+
+
+stages:
+  - id: DATA
+    outputs:
+      - id: rawdata_h5ad
+        path: "{dataset}.h5ad"
+      - id: rawdata_clusters_truth
+        path: "{dataset}.clusters_truth.tsv"
+      - id: rawdata_clusters_truth_num
+        path: "{dataset}.clusters_truth_num.txt"
+      - id: properties_info
+        path: "{dataset}_properties.yaml"
+    modules:
+      - id: be1-test
+        name: "be1 fixture via omni-data https://"
+        software_environment: omni_data
+        repository:
+          url: https://github.com/btraven00/omni-data
+          # TODO: repin once omni-data's --uri_type lands. eb4d368 predates it
+          # and rejects unknown arguments, so this module dies until then.
+          commit: eb4d368b5e83b26389e6047dd8bad6badede78f8
+        parameters:
+          # Same fixture as fixtures/DATA
+          #
+          # uri_type states the folder outright instead of leaning on the
+          # trailing slash: lose that slash in an edit and the fetch silently
+          # returns the server's index page as if it were the dataset.
+          - uri: https://omnibenchmark.mls.uzh.ch/datasets/be1-fixture/
+            uri_type: directory
+
+      - id: pbmc
+        name: "pbmc multimodal (SCT counts) via omni-data file://"
+        software_environment: omni_data
+        repository:
+          url: https://github.com/btraven00/omni-data
+          commit: eb4d368b5e83b26389e6047dd8bad6badede78f8
+        parameters:
+          # TODO: publish URL
+          - uri: file:///home/b/phd/data/pbmc_omnidata
+  - id: FILT
+    inputs:
+      - rawdata_h5ad
+      - properties_info
+    outputs:
+      - id: filtered_cellids
+        path: "{dataset}_cellids.txt.gz"
+    modules:
+      - id: fi-scrapper
+        name: "scrapper-style filtering"
+        software_environment: "scrapper"
+        repository:
+          url: https://github.com/omni-scrna/scrapper
+          commit: 18843a7
+          entrypoint: filter
+
+  - id: NORM
+    inputs:
+      - rawdata_h5ad
+      - filtered_cellids
+    outputs:
+      - id: normalized_h5
+        path: "{dataset}_normalized.h5"
+    modules:
+      - id: nr-scrapper
+        name: "scrapper-based normalization"
+        software_environment: "scrapper"
+        repository:
+          url: https://github.com/omni-scrna/scrapper
+          commit: 18843a7
+          entrypoint: normalize
+
+  - id: FEAT
+    inputs:
+      - rawdata_h5ad
+      - normalized_h5
+      - filtered_cellids
+      - properties_info
+    outputs:
+      - id: normalized_selected_h5
+        path: "{dataset}_normalized_selected.h5"
+    modules:
+      - id: fe-scrapper
+        name: "scrapper-based gene selection"
+        software_environment: "scrapper"
+        repository:
+          url: https://github.com/omni-scrna/scrapper
+          commit: 18843a7
+          entrypoint: select
+        parameters:
+          - number_selected: 2000
+
+  - id: PCA
+    resources:
+      # cores: 8 == --cores, so only one PCA runs at a time. Each full-pbmc PCA
+      # peaks ~13GB; two concurrent OOM'd a 62GB box. ponytail: raise if you cap
+      # peak mem another way (mem_mb resource) or trim the solver sweep.
+      cores: 8
+    inputs:
+      - normalized_selected_h5
+    outputs:
+      - id: pcas_tsv
+        path: "{dataset}_pcas.tsv"
+      - id: loadings_tsv
+        path: "{dataset}_loadings.tsv"
+    modules:
+      - id: pc-scanpy
+        name: "scanpy PCA"
+        software_environment: "scanpy"
+        repository:
+          url: https://github.com/omni-scrna/scanpy
+          commit: 53eb292
+          entrypoint: pca
+        parameters:
+          - solver: [arpack, randomized]
+            n_components: 50
+            random_seed: 42
+      - id: pc-scrapper
+        name: "scrapper PCA"
+        software_environment: "scrapper"
+        repository:
+          url: https://github.com/omni-scrna/scrapper
+          commit: 18843a7
+          entrypoint: pca
+        parameters:
+          - solver: [exact, irlba, random]
+            n_components: 50
+            random_seed: 42
+      - id: pc-rapids
+        name: "rapids-singlecell PCA (GPU)"
+        software_environment: "rapids_singlecell"
+        # NEEDS omnibenchmark#362 (capability gating) merged
+        # comment manually to avoid a CUDA error.
+        requires_capabilities: [gpu]
+        repository:
+          url: https://github.com/omni-scrna/rapids-singlecell
+          commit: testing
+          entrypoint: pca
+        parameters:
+          # sparse-only solvers: normalized_selected_h5 loads as CSR, and the
+          # module raises rather than let rsc silently swap in another solver.
+          # full/jacobi are dense-only, so they're out.
+          - solver: [covariance-eigh, lanczos, randomized-halko]
+            n_components: 50
+            random_seed: 42
+
+  - id: EMBED-M
+    inputs:
+      - pcas_tsv
+      - rawdata_clusters_truth
+    outputs:
+      - id: embedding_metrics
+        path: "{dataset}_embedding_metrics.json"
+    modules:
+      - id: em-metrics-py
+        name: "Embedding metrics in python"
+        software_environment: "metrics"
+        repository:
+          url: https://github.com/omni-scrna/metrics
+          commit: 646f1e4
+          entrypoint: embedding-py
+      # ponytail: dropped em-metrics-r — ~30GB and ~50min+ PER job x40 on full
+      # pbmc (O(N^2) in cells), intractable serialized. em-metrics-py covers the
+      # same embedding metrics. Re-add on a smaller dataset or bigger box.
+
+  - id: NNG
+    inputs:
+      - pcas_tsv
+    outputs:
+      - id: neighbors_h5
+        path: "{dataset}_neighbors.h5"
+    modules:
+      - id: nn-scanpy
+        name: "scanpy KNN graph"
+        software_environment: "scanpy"
+        repository:
+          url: https://github.com/omni-scrna/scanpy
+          commit: 53eb292
+          entrypoint: knn
+        parameters:
+          - n_neighbors: 15
+            random_seed: 42
+            flavor: "umap"
+
+  - id: GRAPH-M
+    inputs:
+      - neighbors_h5
+      - rawdata_clusters_truth
+    outputs:
+      - id: graph_metrics
+        path: "{dataset}_graph_metrics.json"
+    modules:
+      - id: nn-metrics-r
+        name: "Graph metrics in R"
+        software_environment: "metrics"
+        repository:
+          url: https://github.com/omni-scrna/metrics
+          commit: 646f1e4
+          entrypoint: graph-r
+
+  - id: CLUST
+    inputs:
+      - neighbors_h5
+    outputs:
+      - id: clusters_tsv
+        path: "{dataset}_clusters.tsv"
+    modules: 
+      - id: cl-scrapper
+        name: "Scrapper clustering"
+        software_environment: "scrapper"
+        repository:
+          url: https://github.com/omni-scrna/scrapper
+          commit: 8a1cfd8
+          entrypoint: cluster
+        parameters:
+          - flavor: ["leiden_modularity"]
+            resolution: [1.0]
+            random_seed: 42
+
+  - id: CLUST-M
+    inputs:
+      - clusters_tsv
+      - rawdata_clusters_truth
+    outputs:
+      - id: cluster_metrics
+        path: "{dataset}_cluster_metrics.json"
+    modules:
+      - id: cl-metrics-r
+        name: "Partition metrics in R"
+        software_environment: "metrics"
+        repository:
+          url: https://github.com/omni-scrna/metrics
+          commit: 257c952
+          entrypoint: cluster-r
+
+  # scSHC lives in its own stage, not as a second CLUST-M module: it emits a
+  # different output file (_cluster_shc.json vs _cluster_metrics.json) and needs
+  # rawdata_h5ad, which the CLUST-M contract doesn't provide (see the entrypoint's
+  # header note). The module still reads the CLUST-M schema (clusters_tsv +
+  # rawdata_clusters_truth, truth unused), so this stage feeds those plus counts.
+  # - id: CLUST-SHC
+  #   resources:
+  #     cores: 4
+  #   inputs:
+  #     - clusters_tsv
+  #     - rawdata_clusters_truth
+  #     - rawdata_h5ad
+  #   outputs:
+  #     - id: cluster_shc_metrics
+  #       path: "{dataset}_cluster_shc.json"
+  #   modules:
+  #     - id: cl-shc-r
+  #       name: "scSHC cluster significance"
+  #       software_environment: "scshc"
+  #       repository:
+  #         url: https://github.com/btraven00/omni-scrna-metrics
+  #         commit: 0f3a87f793dd194c65bca494de142c12456dea2e
+  #         entrypoint: cluster-shc-r
