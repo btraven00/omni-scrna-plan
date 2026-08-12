@@ -189,7 +189,7 @@ stages:
           - d-pca
         repository:
           url: https://github.com/omni-scrna/seurat
-          commit: f913675 # ac9c9f5
+          commit: f913675 
           entrypoint: select
         parameters:
           - selection_type: ["seurat_vst", "seurat_vst_batch"]
@@ -608,5 +608,5 @@ stages:
         software_environment: "metrics"
         repository:
           url: https://github.com/omni-scrna/metrics
-          commit: norm-m
+          commit: 88f754c
           entrypoint: normalization-r
