@@ -5,10 +5,7 @@ benchmarker: "Mark Robinson <mark.robinson@mls.uzh.ch>"
 
 # Benchmark configuration
 version: "0.1.0"
-# 0.4.0, not 0.5: at >=0.5 omnibenchmark passes --name=module_id instead of the
-# dataset stem, and 22 files across 15 module repos build outputs as
-# "{name}_suffix" -> MissingOutputException. (0.6.0 isn't a valid api_version at
-# all; the enum stops at 0.5.0. The ob *CLI* is 0.6.0 -- different number line.)
+# TODO: bump to api 0.7.0
 api_version: "0.4.0"
 
 provenance:
@@ -53,6 +50,9 @@ software_environments:
   omni_data:
     name: omni-data fixture loader
     conda: envs/omni-data.yml
+  onlinepca_jl:
+    name: OnlinePCA.jl module env (julia + HDF5)
+    conda: envs/onlinepca-jl.yml
   rapids_singlecell:
     name: rapids-singlecell GPU env (cu13 wheels; needs an NVIDIA GPU + CUDA 13 driver)
     conda: envs/rapids-singlecell.yml
@@ -164,6 +164,14 @@ stages:
       cores: 8
     inputs:
       - normalized_selected_h5
+      # Raw counts + the cell roster, for count-native factorizations that can't
+      # use a log-normalized matrix (pc-onlinepca). All three producers -- FEAT,
+      # DATA, FILT -- are on one linear chain, so this is not a divergent-branch
+      # join and needs no api bump; same shape as CNTFCT in benchmark_conda.yaml.
+      # Modules that don't want them just declare and ignore them, as FEAT's
+      # modules already do.
+      - rawdata_h5ad
+      - filtered_cellids
     outputs:
       - id: pcas_tsv
         path: "{dataset}_pcas.tsv"
@@ -210,6 +218,26 @@ stages:
             n_components: 50
             random_seed: 42
 
+      - id: pc-onlinepca
+        name: "OnlinePCA.jl (raw counts)"
+        software_environment: "onlinepca_jl"
+        # Consumes rawdata_h5ad + filtered_cellids; OnlinePCA.jl is
+        # integer-counts-only (its loaders parse matrix/data into Vector{Int}),
+        # so it can't use normalized_selected_h5 -- it reads only matrix/genes
+        # from that file, to stay on the same HVG set as the other modules.
+        repository:
+          url: https://github.com/btraven00/pca-onlinepca.jl
+          # branch, like pc-rapids' `testing`; pin a sha once the rewire is pushed.
+          commit: main
+          entrypoint: pca
+        parameters:
+          # {algorithm}_{scale}. tenxpca only: algorithm971 is wired to mm2bin,
+          # whose sparse triplet format OnlinePCA's `init` cannot read (it reads
+          # the dense csv2bin layout) -- it dies with EOFError after sumr. The
+          # tenxpca path is verified end-to-end on the `data` fixture.
+          - solver: [tenxpca_sqrt, tenxpca_log]
+            n_components: 50
+            random_seed: 42
   - id: EMBED-M
     inputs:
       - pcas_tsv
