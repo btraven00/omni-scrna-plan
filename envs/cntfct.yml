@@ -14,7 +14,7 @@ dependencies:
 - bioconductor-delayedarray >=0.36.0,<0.37
 - conda-forge::r-optparse >=1.8.2,<2
 - r-base >=4.5.3,<4.6
-- bioconda::bioconductor-anndatar >=1.0.2,<2
+- bioconductor-anndatar >=1.0.2,<2
 - bioconductor-singlecellexperiment
 - r-argparser
 - r-stringr

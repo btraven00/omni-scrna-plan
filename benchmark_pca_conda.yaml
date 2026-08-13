@@ -164,14 +164,6 @@ stages:
       cores: 8
     inputs:
       - normalized_selected_h5
-      # Raw counts + the cell roster, for count-native factorizations that can't
-      # use a log-normalized matrix (pc-onlinepca). All three producers -- FEAT,
-      # DATA, FILT -- are on one linear chain, so this is not a divergent-branch
-      # join and needs no api bump; same shape as CNTFCT in benchmark_conda.yaml.
-      # Modules that don't want them just declare and ignore them, as FEAT's
-      # modules already do.
-      - rawdata_h5ad
-      - filtered_cellids
     outputs:
       - id: pcas_tsv
         path: "{dataset}_pcas.tsv"
@@ -218,26 +210,6 @@ stages:
             n_components: 50
             random_seed: 42
 
-      - id: pc-onlinepca
-        name: "OnlinePCA.jl (raw counts)"
-        software_environment: "onlinepca_jl"
-        # Consumes rawdata_h5ad + filtered_cellids; OnlinePCA.jl is
-        # integer-counts-only (its loaders parse matrix/data into Vector{Int}),
-        # so it can't use normalized_selected_h5 -- it reads only matrix/genes
-        # from that file, to stay on the same HVG set as the other modules.
-        repository:
-          url: https://github.com/btraven00/pca-onlinepca.jl
-          # branch, like pc-rapids' `testing`; pin a sha once the rewire is pushed.
-          commit: main
-          entrypoint: pca
-        parameters:
-          # {algorithm}_{scale}. tenxpca only: algorithm971 is wired to mm2bin,
-          # whose sparse triplet format OnlinePCA's `init` cannot read (it reads
-          # the dense csv2bin layout) -- it dies with EOFError after sumr. The
-          # tenxpca path is verified end-to-end on the `data` fixture.
-          - solver: [tenxpca_sqrt, tenxpca_log]
-            n_components: 50
-            random_seed: 42
   - id: EMBED-M
     inputs:
       - pcas_tsv
@@ -327,6 +299,40 @@ stages:
           commit: 257c952
           entrypoint: cluster-r
 
+  - id: CNTFCT
+    resources:
+      cores: 4
+    inputs:
+    - normalized_selected_h5
+    - rawdata_h5ad
+    - filtered_cellids
+    outputs:
+    - id: pcas_tsv
+      path: '{dataset}_pcas.tsv'
+    - id: loadings_tsv
+      path: '{dataset}_loadings.tsv'  
+
+    modules:
+      - id: pc-onlinepca
+        name: "OnlinePCA.jl (raw counts)"
+        software_environment: "onlinepca_jl"
+        # Consumes rawdata_h5ad + filtered_cellids; OnlinePCA.jl is
+        # integer-counts-only (its loaders parse matrix/data into Vector{Int}),
+        # so it can't use normalized_selected_h5 -- it reads only matrix/genes
+        # from that file, to stay on the same HVG set as the other modules.
+        repository:
+          url: https://github.com/btraven00/pca-onlinepca.jl
+          # branch, like pc-rapids' `testing`; pin a sha once the rewire is pushed.
+          commit: main
+          entrypoint: pca
+        parameters:
+          # {algorithm}_{scale}. tenxpca only: algorithm971 is wired to mm2bin,
+          # whose sparse triplet format OnlinePCA's `init` cannot read (it reads
+          # the dense csv2bin layout) -- it dies with EOFError after sumr. The
+          # tenxpca path is verified end-to-end on the `data` fixture.
+          - solver: [tenxpca_sqrt, tenxpca_log]
+            n_components: 50
+            random_seed: 42
   # scSHC lives in its own stage, not as a second CLUST-M module: it emits a
   # different output file (_cluster_shc.json vs _cluster_metrics.json) and needs
   # rawdata_h5ad, which the CLUST-M contract doesn't provide (see the entrypoint's
