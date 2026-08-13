@@ -1,8 +1,10 @@
 {
   "stage": "PCA",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "benchmark": "omni-scrna/split-stages-plan",
   "args": [
-    { "flag": "--normalized_selected_h5", "type": "path", "help": "Normalized, gene-selected matrix H5" }
+    { "flag": "--normalized_selected_h5", "type": "path", "help": "Normalized, gene-selected matrix H5" },
+    { "flag": "--rawdata_h5ad", "type": "path", "help": "Raw counts h5ad (/layers/counts); ignored by modules that consume the normalized matrix" },
+    { "flag": "--filtered_cellids", "type": "path", "help": "Gzipped kept cell ids; ignored by modules that consume the normalized matrix" }
   ]
 }
