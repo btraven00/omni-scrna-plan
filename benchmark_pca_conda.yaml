@@ -59,6 +59,9 @@ software_environments:
   tpca:
     name: Topological PCA module env (numpy/scipy/h5py only)
     conda: envs/tpca.yml
+  rmt_spca:
+    name: RMT sparse PCA env (numpy/scipy/h5py + rust; the module builds its shim)
+    conda: envs/rmt-spca.yml
 
 
 # Seed sweep, referenced as *seeds by every embedding producer (PCA and
@@ -216,7 +219,12 @@ stages:
         software_environment: "scrapper"
         repository:
           url: https://github.com/omni-scrna/scrapper
-          commit: 18843a7
+          # branch (needs --unpinned): passes random_seed through to IRLBA's
+          # starting vector, which runPca otherwise seeds internally with its
+          # own default of 5489 -- so the swept seed was inert here.
+          # Only this module moves off 18843a7; the other four scrapper
+          # entrypoints stay pinned, keeping the seed fix the single variable.
+          commit: random-seed
           entrypoint: pca
         parameters:
           - solver: [exact, irlba, random]
@@ -287,6 +295,31 @@ stages:
             beta: 60
             gamma: 100000
             zetas: "1,0.5,0.3333333,0.25,0.2,0.16666667,0.14285714,0.125"
+      - id: pc-rmt-spca
+        name: "RMT-guided sparse PCA (biwhitening + Marchenko-Pastur + FISTA)"
+        software_environment: "rmt_spca"
+        repository:
+          url: /home/b/lab/omni-scrna/split-stages-plan-modules/omni-rmt-spca
+          commit: main
+          entrypoint: pca
+        parameters:
+          # NO n_components, and deliberately NOT on *n_comps: this module
+          # DERIVES k as count(eigenvalue > the MP bulk edge lambda+), which is
+          # the whole point of the method. Measured on be1: k=72. Parameters are
+          # per-module, so opting out of the anchor needs no separate stage.
+          #
+          # k_max is a search CEILING, not a target, and the module fails if k
+          # saturates it -- the crate's own default of 20 bound on every dataset
+          # tested (be1 true k 72, pbmc 394), silently reporting the cap as the
+          # answer.
+          #
+          # bw_damp 0.3, not the crate's 1.0: at 1.0 the Sinkhorn residual lands
+          # above 1e-2 on every dataset tested, and the crate then DISCARDS the
+          # biwhitening factors for one-sided per-gene standardisation. The
+          # module fails rather than benchmark that substitute method.
+          - lambda_frac: 0.3
+            bw_damp: 0.3
+            k_max: 500
       - id: pc-tpca-fast
         name: "Topological PCA (sparse/matvec rewrite)"
         software_environment: "tpca"
