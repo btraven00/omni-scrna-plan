@@ -58,6 +58,12 @@ software_environments:
     conda: envs/rapids-singlecell.yml
 
 
+# Seed sweep, referenced as *seeds by every embedding producer (PCA and
+# CNTFCT) so their spread is comparable. NNG and CLUST stay pinned at 42, which
+# keeps this isolating the embedding rather than the whole pipeline.
+# Not a schema key -- omnibenchmark ignores it, it exists to hold the anchor.
+seeds: &seeds [42, 43, 44, 45, 46]
+
 stages:
   - id: DATA
     outputs:
@@ -75,13 +81,13 @@ stages:
       # under its own basenames, so this id must match the stem the files are
       # published with (be1.h5ad, be1_properties.yaml, ...). Renaming it to
       # be1-test made every output miss.
-      - id: be1
-        name: "be1 fixture via omni-data https://"
+      - id: be1-fixture
+        name: "be1 fixture via omni-data"
         software_environment: omni_data
         repository:
           url: https://github.com/btraven00/omni-data
           # 80611e8 (merge of omni-data#1) is the first commit that understands
-          # --uri_type; eb4d368 rejects it as an unknown argument.
+          # --uri_type
           commit: 80611e83d13c8bd0d15fbc033c6a5e1a7900a0b8
         parameters:
           # Same fixture as fixtures/DATA
@@ -180,7 +186,7 @@ stages:
         parameters:
           - solver: [arpack, randomized]
             n_components: 50
-            random_seed: 42
+            random_seed: *seeds
       - id: pc-scrapper
         name: "scrapper PCA"
         software_environment: "scrapper"
@@ -191,11 +197,12 @@ stages:
         parameters:
           - solver: [exact, irlba, random]
             n_components: 50
-            random_seed: 42
+            random_seed: *seeds
       - id: pc-rapids
         name: "rapids-singlecell PCA (GPU)"
         software_environment: "rapids_singlecell"
-        # NEEDS omnibenchmark#362 (capability gating) merged
+        # NEEDS omnibenchmark >0.6 (capability gating) 
+        # run: --with-capability gpu
         # comment manually to avoid a CUDA error.
         requires_capabilities: [gpu]
         repository:
@@ -208,7 +215,7 @@ stages:
           # full/jacobi are dense-only, so they're out.
           - solver: [covariance-eigh, lanczos, randomized-halko]
             n_components: 50
-            random_seed: 42
+            random_seed: *seeds
 
   - id: EMBED-M
     inputs:
@@ -328,11 +335,10 @@ stages:
         parameters:
           # {algorithm}_{scale}. tenxpca only: algorithm971 is wired to mm2bin,
           # whose sparse triplet format OnlinePCA's `init` cannot read (it reads
-          # the dense csv2bin layout) -- it dies with EOFError after sumr. The
-          # tenxpca path is verified end-to-end on the `data` fixture.
+          # the dense csv2bin layout) -- it dies with EOFError after sumr.
           - solver: [tenxpca_sqrt, tenxpca_log]
             n_components: 50
-            random_seed: 42
+            random_seed: *seeds
   # scSHC lives in its own stage, not as a second CLUST-M module: it emits a
   # different output file (_cluster_shc.json vs _cluster_metrics.json) and needs
   # rawdata_h5ad, which the CLUST-M contract doesn't provide (see the entrypoint's
