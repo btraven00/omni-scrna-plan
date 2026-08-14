@@ -103,7 +103,10 @@ stages:
 
       # Commented out for e2e runs on the fixture: full pbmc is 157k cells and
       # every downstream stage pays for it (PCA alone peaks ~13GB per job).
-      # Uncomment for a real benchmark run.
+      # Uncomment for a real benchmark run -- and comment out pc-tpca when you
+      # do: it refuses >5000 cells and exits nonzero, which fails the whole run.
+      # tPCA's filtration is n_cells^2 dense (197GB per intermediate at 157k,
+      # 1.6TB for the 8-level stack), so it is fixture-only by construction.
       # - id: pbmc
       #   name: "pbmc multimodal (SCT counts) via omni-data file://"
       #   software_environment: omni_data
