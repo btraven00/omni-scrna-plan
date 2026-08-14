@@ -56,6 +56,9 @@ software_environments:
   rapids_singlecell:
     name: rapids-singlecell GPU env (cu13 wheels; needs an NVIDIA GPU + CUDA 13 driver)
     conda: envs/rapids-singlecell.yml
+  tpca:
+    name: Topological PCA module env (numpy/scipy/h5py only)
+    conda: envs/tpca.yml
 
 
 # Seed sweep, referenced as *seeds by every embedding producer (PCA and
@@ -216,6 +219,39 @@ stages:
           - solver: [covariance-eigh, lanczos, randomized-halko]
             n_components: 50
             random_seed: *seeds
+      - id: pc-tpca
+        name: "Topological PCA (persistent Laplacian)"
+        software_environment: "tpca"
+        repository:
+          url: https://github.com/omni-scrna/topological-pca
+          # branch, like pc-rapids' `testing`; pin a sha once pushed.
+          commit: main
+          entrypoint: pca
+        parameters:
+          # No random_seed, and deliberately NOT on *seeds: tPCA has no RNG
+          # (np.eye/np.ones init, deterministic solver), so a seed sweep would
+          # run the identical job five times.
+          #
+          # beta/gamma/zetas are the published GSE82187 values (upstream
+          # Tests/paramvals_*.csv). zetas weights one filtration level each, so
+          # it's a vector, not a scalar -- it travels as a comma string and is
+          # parsed module-side. tpca takes 7 (thresholds), knn-tpca takes 8
+          # (neighbour counts 1,3,..,15), hence one parameter set per solver.
+          #
+          # ponytail: fixture-only module. The filtration is dense in cells
+          # (n^2 memory, 30 n^3 solves); the module's --max_cells 5000 refuses
+          # anything bigger. be1 (1715 cells) runs in ~2s at ~600MB; full pbmc
+          # at 157k cells would need ~197GB for one intermediate.
+          - solver: [tpca]
+            n_components: 50
+            beta: 60
+            gamma: 1000
+            zetas: "0,1,0,4,0,5,1"
+          - solver: [knn-tpca]
+            n_components: 50
+            beta: 60
+            gamma: 100000
+            zetas: "1,0.5,0.3333333,0.25,0.2,0.16666667,0.14285714,0.125"
 
   - id: EMBED-M
     inputs:

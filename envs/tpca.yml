@@ -1,0 +1,11 @@
+name: tpca
+channels:
+- conda-forge
+- nodefaults
+dependencies:
+# numpy/scipy/h5py only -- the algorithm is vendored (src/tpca_upstream.py) and
+# the TSV writers are stdlib, so there is no scanpy/anndata/polars here.
+- python >=3.12,<3.15
+- numpy >=2,<3
+- scipy >=1.14,<2
+- h5py >=3.11,<4
