@@ -244,7 +244,7 @@ stages:
         name: "Topological PCA (persistent Laplacian)"
         software_environment: "tpca"
         repository:
-          url: https://github.com/omni-scrna/topological-pca
+          url: https://github.com/btraven00/topological-pca
           # branch, like pc-rapids' `testing`; pin a sha once pushed. Until it
           # is pushed, swap this url for the local checkout path and run with
           # --dirty (that is how the numbers in the comments below were taken).
@@ -291,7 +291,7 @@ stages:
         name: "Topological PCA (sparse/matvec rewrite)"
         software_environment: "tpca"
         repository:
-          url: https://github.com/omni-scrna/topological-pca
+          url: https://github.com/btraven00/topological-pca
           commit: main
           # Same algorithm as pc-tpca, nothing materialised at n_cells^2.
           # Reproduces the dense path exactly (principal angles 1.0000 on be1
@@ -300,8 +300,11 @@ stages:
           # Measured on be1-derived subsamples, k=50:
           #   n= 4000  dense 2.6GB/12s   sparse 0.6GB/36s
           #   n= 8000  dense 9.8GB/126s  sparse 1.0GB/62s
-          # Memory is O(n^2) vs O(n): the dense path is the one that cannot
-          # reach pbmc, and this is the one that could.
+          #   n=16000  dense ~37GB(est)  sparse 2.0GB/395s
+          # Memory is O(n^2) vs O(n) and is genuinely fixed. Time is only
+          # improved, not fixed: Lanczos iteration counts grow with n, so wall
+          # is ~n^2.5-2.7 and extrapolates to ~2 days at 157k cells. Enough to
+          # make pbmc possible, not yet enough to make it routine.
           entrypoint: pca-fast
         parameters:
           - solver: [tpca]
