@@ -1,0 +1,14 @@
+name: scshc
+channels:
+  - https://repo.prefix.dev/almost-conductor
+  - conda-forge
+  - bioconda
+  - nodefaults
+dependencies:
+  - r-base >=4.5,<4.6.0
+  - r-scshc *        # cluster-significance testClusters (almost-conductor channel)
+  - r-hdf5r *        # read raw counts from the h5ad
+  - r-matrix *
+  - r-data.table *
+  - r-jsonlite *
+  - r-argparser *    # cli.R uses argparser (not argparse)
