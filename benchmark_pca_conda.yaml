@@ -67,6 +67,22 @@ software_environments:
 # Not a schema key -- omnibenchmark ignores it, it exists to hold the anchor.
 seeds: &seeds [42, 43, 44, 45, 46]
 
+# Component budget, referenced as *n_comps by every embedding producer. It is a
+# swept axis rather than a constant because 50 is not neutral ground: tPCA takes
+# the k SMALLEST eigenvectors, so its quality is a function of k in a way the
+# SVD-based modules' is not. Measured on be1 (silhouette vs truth):
+#
+#            k=10    k=15    k=20    k=50
+#   tpca     0.492   0.246   0.127  -0.012
+#   scanpy   0.392   0.349   0.327   0.265
+#
+# At 10 tPCA wins, by 15 it has lost, at 50 it has no signal left. Pinning a
+# single k picks a winner before the benchmark runs. 10 is deliberately NOT
+# be1's truth count (8): sizing k from the labels is leakage, since truth is
+# not an input to the PCA stage.
+# Not a schema key -- omnibenchmark ignores it, it exists to hold the anchor.
+n_comps: &n_comps [10, 50]
+
 stages:
   - id: DATA
     outputs:
@@ -105,8 +121,10 @@ stages:
       # every downstream stage pays for it (PCA alone peaks ~13GB per job).
       # Uncomment for a real benchmark run -- and comment out pc-tpca when you
       # do: it refuses >5000 cells and exits nonzero, which fails the whole run.
-      # tPCA's filtration is n_cells^2 dense (197GB per intermediate at 157k,
-      # 1.6TB for the 8-level stack), so it is fixture-only by construction.
+      # Upstream's tPCA filtration is n_cells^2 dense (197GB per intermediate at
+      # 157k, ~3.6TB peak extrapolated from measurement), so THAT module is
+      # fixture-only by construction. pc-tpca-fast is the one to keep here: same
+      # embedding, O(n) memory, ~11GB extrapolated at 157k.
       # - id: pbmc
       #   name: "pbmc multimodal (SCT counts) via omni-data file://"
       #   software_environment: omni_data
@@ -191,7 +209,7 @@ stages:
           entrypoint: pca
         parameters:
           - solver: [arpack, randomized]
-            n_components: 50
+            n_components: *n_comps
             random_seed: *seeds
       - id: pc-scrapper
         name: "scrapper PCA"
@@ -202,7 +220,7 @@ stages:
           entrypoint: pca
         parameters:
           - solver: [exact, irlba, random]
-            n_components: 50
+            n_components: *n_comps
             random_seed: *seeds
       - id: pc-rapids
         name: "rapids-singlecell PCA (GPU)"
@@ -220,7 +238,7 @@ stages:
           # module raises rather than let rsc silently swap in another solver.
           # full/jacobi are dense-only, so they're out.
           - solver: [covariance-eigh, lanczos, randomized-halko]
-            n_components: 50
+            n_components: *n_comps
             random_seed: *seeds
       - id: pc-tpca
         name: "Topological PCA (persistent Laplacian)"
@@ -260,15 +278,44 @@ stages:
           # anything bigger. be1 (1715 cells) runs in ~2s at ~600MB; full pbmc
           # at 157k cells would need ~197GB for one intermediate.
           - solver: [tpca]
-            n_components: 50
+            n_components: *n_comps
             beta: 60
             gamma: 1000
             zetas: "0,1,0,4,0,5,1"
           - solver: [knn-tpca]
-            n_components: 50
+            n_components: *n_comps
             beta: 60
             gamma: 100000
             zetas: "1,0.5,0.3333333,0.25,0.2,0.16666667,0.14285714,0.125"
+      - id: pc-tpca-fast
+        name: "Topological PCA (sparse/matvec rewrite)"
+        software_environment: "tpca"
+        repository:
+          url: https://github.com/omni-scrna/topological-pca
+          commit: main
+          # Same algorithm as pc-tpca, nothing materialised at n_cells^2.
+          # Reproduces the dense path exactly (principal angles 1.0000 on be1
+          # at n=1715/4000/8000, both solvers), so running both is a
+          # cost-only comparison: same embedding, different resource curve.
+          # Measured on be1-derived subsamples, k=50:
+          #   n= 4000  dense 2.6GB/12s   sparse 0.6GB/36s
+          #   n= 8000  dense 9.8GB/126s  sparse 1.0GB/62s
+          # Memory is O(n^2) vs O(n): the dense path is the one that cannot
+          # reach pbmc, and this is the one that could.
+          entrypoint: pca-fast
+        parameters:
+          - solver: [tpca]
+            n_components: *n_comps
+            beta: 60
+            gamma: 1000
+            zetas: "0,1,0,4,0,5,1"
+            max_cells: 200000
+          - solver: [knn-tpca]
+            n_components: *n_comps
+            beta: 60
+            gamma: 100000
+            zetas: "1,0.5,0.3333333,0.25,0.2,0.16666667,0.14285714,0.125"
+            max_cells: 200000
 
   - id: EMBED-M
     inputs:
@@ -390,7 +437,7 @@ stages:
           # whose sparse triplet format OnlinePCA's `init` cannot read (it reads
           # the dense csv2bin layout) -- it dies with EOFError after sumr.
           - solver: [tenxpca_sqrt, tenxpca_log]
-            n_components: 50
+            n_components: *n_comps
             random_seed: *seeds
   # scSHC lives in its own stage, not as a second CLUST-M module: it emits a
   # different output file (_cluster_shc.json vs _cluster_metrics.json) and needs
