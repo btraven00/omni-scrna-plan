@@ -211,13 +211,25 @@ stages:
           commit: 53eb292
           entrypoint: pca
         parameters:
-          # MEASURED seed-invariant: both solvers give byte-identical embeddings
-          # at seed 42 vs 43 on be1, so *seeds would be 5 copies of one job.
-          # random_seed is still passed because the module requires the flag.
-          # NOTE `randomized` being seed-invariant is suspicious for a
-          # randomized SVD -- possibly the seed is not reaching sklearn. Worth
-          # checking upstream; until then it is measurably not a sweep axis.
-          - solver: [arpack, randomized]
+          # `randomized` is DROPPED, not merely seed-pinned: scanpy silently
+          # coerces it to arpack because sklearn's PCA rejects randomized on
+          # SPARSE input, and normalized_selected_h5 loads as CSR. Verified from
+          # the module itself:
+          #   UserWarning: Ignoring svd_solver='randomized' and using arpack,
+          #   sklearn.decomposition._pca.PCA (with sparse input) only supports
+          #   dict_keys(['arpack', 'covariance_eigh'])
+          # so the randomized arm was a byte-identical duplicate of arpack.
+          #
+          # The seed IS wired correctly (random_state=args.random_seed reaches
+          # sklearn); its effect is just ~2.6e-13, i.e. ARPACK convergence noise,
+          # which is why the emitted TSVs are byte-identical. covariance_eigh --
+          # the only other solver sklearn allows here -- agrees with arpack to
+          # 8e-13, so scanpy's solver axis is degenerate on sparse input and one
+          # arm is the honest representation of it.
+          #
+          # To get a REAL randomized SVD from scanpy the module would have to
+          # densify the input, which is a module change, not a plan change.
+          - solver: [arpack]
             n_components: *n_comps
             random_seed: 42
       - id: pc-scrapper
