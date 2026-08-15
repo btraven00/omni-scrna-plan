@@ -253,10 +253,7 @@ stages:
         software_environment: "tpca"
         repository:
           url: https://github.com/btraven00/topological-pca
-          # branch, like pc-rapids' `testing`; pin a sha once pushed. Until it
-          # is pushed, swap this url for the local checkout path and run with
-          # --dirty (that is how the numbers in the comments below were taken).
-          commit: main
+          commit: 8fb9c63
           entrypoint: pca
         parameters:
           # No random_seed, and deliberately NOT on *seeds: tPCA has no RNG
@@ -299,8 +296,10 @@ stages:
         name: "RMT-guided sparse PCA (biwhitening + Marchenko-Pastur + FISTA)"
         software_environment: "rmt_spca"
         repository:
-          url: /home/b/lab/omni-scrna/split-stages-plan-modules/omni-rmt-spca
-          commit: main
+          url: https://github.com/btraven00/omni-rmt-spca
+          # Pinned. The module in turn pins the algorithm crate at
+          # rmt-spca rev a2c6028, so this sha fixes the whole stack.
+          commit: fe42154
           entrypoint: pca
         parameters:
           # NO n_components, and deliberately NOT on *n_comps: this module
@@ -325,7 +324,7 @@ stages:
         software_environment: "tpca"
         repository:
           url: https://github.com/btraven00/topological-pca
-          commit: main
+          commit: 8fb9c63
           # Same algorithm as pc-tpca, nothing materialised at n_cells^2.
           # Reproduces the dense path exactly (principal angles 1.0000 on be1
           # at n=1715/4000/8000, both solvers), so running both is a
