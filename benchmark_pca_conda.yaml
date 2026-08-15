@@ -203,17 +203,23 @@ stages:
       - id: loadings_tsv
         path: "{dataset}_loadings.tsv"
     modules:
-      - id: pc-scanpy
-        name: "scanpy PCA"
+      - id: pc-scanpy-exact
+        name: "scanpy PCA (seed-invariant solvers)"
         software_environment: "scanpy"
         repository:
           url: https://github.com/omni-scrna/scanpy
           commit: 53eb292
           entrypoint: pca
         parameters:
+          # MEASURED seed-invariant: both solvers give byte-identical embeddings
+          # at seed 42 vs 43 on be1, so *seeds would be 5 copies of one job.
+          # random_seed is still passed because the module requires the flag.
+          # NOTE `randomized` being seed-invariant is suspicious for a
+          # randomized SVD -- possibly the seed is not reaching sklearn. Worth
+          # checking upstream; until then it is measurably not a sweep axis.
           - solver: [arpack, randomized]
             n_components: *n_comps
-            random_seed: *seeds
+            random_seed: 42
       - id: pc-scrapper
         name: "scrapper PCA"
         software_environment: "scrapper"
@@ -227,9 +233,30 @@ stages:
           commit: random-seed
           entrypoint: pca
         parameters:
-          - solver: [exact, irlba, random]
+          # `random` was measured seed-responsive at 18843a7; `irlba` was NOT,
+          # because runPca seeded it internally with 5489 -- which is exactly
+          # what the random-seed branch above fixes, so irlba belongs in the
+          # sweep from that commit on. `exact` has no random start at all and
+          # lives in pc-scrapper-exact.
+          # RE-MEASURE irlba against the branch before trusting its spread.
+          - solver: [irlba, random]
             n_components: *n_comps
             random_seed: *seeds
+      - id: pc-scrapper-exact
+        name: "scrapper PCA (exact SVD, no random start)"
+        software_environment: "scrapper"
+        repository:
+          url: https://github.com/omni-scrna/scrapper
+          # stays on the pinned commit: the random-seed fix is irrelevant to a
+          # solver that never had a random start.
+          commit: 18843a7
+          entrypoint: pca
+        parameters:
+          # MEASURED byte-identical at seed 42 vs 43. random_seed is still
+          # passed because the module requires the flag.
+          - solver: [exact]
+            n_components: *n_comps
+            random_seed: 42
       - id: pc-rapids
         name: "rapids-singlecell PCA (GPU)"
         software_environment: "rapids_singlecell"
@@ -245,9 +272,27 @@ stages:
           # sparse-only solvers: normalized_selected_h5 loads as CSR, and the
           # module raises rather than let rsc silently swap in another solver.
           # full/jacobi are dense-only, so they're out.
-          - solver: [covariance-eigh, lanczos, randomized-halko]
+          # MEASURED: only randomized-halko responds to the seed;
+          # covariance-eigh and lanczos are byte-identical at 42 vs 43 and live
+          # in pc-rapids-exact.
+          - solver: [randomized-halko]
             n_components: *n_comps
             random_seed: *seeds
+      - id: pc-rapids-exact
+        name: "rapids-singlecell PCA, GPU (seed-invariant solvers)"
+        software_environment: "rapids_singlecell"
+        requires_capabilities: [gpu]
+        repository:
+          url: https://github.com/omni-scrna/rapids-singlecell
+          commit: testing
+          entrypoint: pca
+        parameters:
+          # MEASURED byte-identical at seed 42 vs 43 on be1. `lanczos` being
+          # seed-invariant is worth an upstream look -- a Lanczos start vector
+          # is normally random -- but it measurably is not a sweep axis here.
+          - solver: [covariance-eigh, lanczos]
+            n_components: *n_comps
+            random_seed: 42
       - id: pc-tpca
         name: "Topological PCA (persistent Laplacian)"
         software_environment: "tpca"
