@@ -73,37 +73,37 @@ stages:
         name: "TENx ladder: 5k cells"
         <<: *ladder
         parameters:
-          - uri: file:///home/b/phd/data/tenx_ladder/tenx-0005k
+          - uri: file:///home/ben/data/tenx_ladder/tenx-0005k
             uri_type: directory
       - id: tenx-0010k
         name: "TENx ladder: 10k cells"
         <<: *ladder
         parameters:
-          - uri: file:///home/b/phd/data/tenx_ladder/tenx-0010k
+          - uri: file:///home/ben/data/tenx_ladder/tenx-0010k
             uri_type: directory
       - id: tenx-0020k
         name: "TENx ladder: 20k cells"
         <<: *ladder
         parameters:
-          - uri: file:///home/b/phd/data/tenx_ladder/tenx-0020k
+          - uri: file:///home/ben/data/tenx_ladder/tenx-0020k
             uri_type: directory
       - id: tenx-0040k
         name: "TENx ladder: 40k cells"
         <<: *ladder
         parameters:
-          - uri: file:///home/b/phd/data/tenx_ladder/tenx-0040k
+          - uri: file:///home/ben/data/tenx_ladder/tenx-0040k
             uri_type: directory
       - id: tenx-0080k
         name: "TENx ladder: 80k cells"
         <<: *ladder
         parameters:
-          - uri: file:///home/b/phd/data/tenx_ladder/tenx-0080k
+          - uri: file:///home/ben/data/tenx_ladder/tenx-0080k
             uri_type: directory
       - id: tenx-0160k
         name: "TENx ladder: 160k cells"
         <<: *ladder
         parameters:
-          - uri: file:///home/b/phd/data/tenx_ladder/tenx-0160k
+          - uri: file:///home/ben/data/tenx_ladder/tenx-0160k
             uri_type: directory
       # ---- rungs past here have not been run end to end yet. The two known
       # ceilings are upstream (scrapper FILT/NORM/FEAT are in-memory R) and on
@@ -208,7 +208,7 @@ stages:
         requires_capabilities: [gpu]
         repository:
           url: https://github.com/omni-scrna/rapids-singlecell
-          commit: TODO-pin-a-sha
+          commit: 4fc9d36
           entrypoint: pca
         parameters:
           # sparse-only solvers: normalized_selected_h5 loads as CSR and the
