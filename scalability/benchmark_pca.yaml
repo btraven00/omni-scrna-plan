@@ -1,0 +1,219 @@
+name: pca-scalability
+id: pca_scalability
+description: >
+  GPU PCA scalability slice. One DATA module per rung of the TENx cell-count
+  ladder, the minimum CPU path needed to reach a normalized/gene-selected
+  matrix, and rapids-singlecell PCA as the only method under test. The x-axis
+  is cells (the rungs), the y-axis is whatever `ob collect performance` records.
+benchmarker: "Ben <ben.uzh@proton.me>"
+
+version: "0.1.0"
+api_version: "0.4.0"
+
+software_backend: "conda"
+
+# Env paths resolve relative to THIS file, not to the invocation directory,
+# hence ../envs/ -- the envs stay shared with benchmark_conda.yaml at the root.
+software_environments:
+  scrapper:
+    name: scrapper multi-module
+    conda: ../envs/scrapper.yml
+  omni_data:
+    name: omni-data fixture loader
+    conda: ../envs/omni-data.yml
+  rapids_singlecell:
+    name: rapids-singlecell GPU env (cu13 wheels; needs an NVIDIA GPU)
+    conda: ../envs/rapids-singlecell.yml
+
+# ---------------------------------------------------------------------------
+# Anchors. Not schema keys -- omnibenchmark ignores unknown top-level keys,
+# they exist to hold the anchor.
+# ---------------------------------------------------------------------------
+
+# Every ladder rung is the SAME omni-data module pointed at a different
+# directory on disk, so the module body is written once here and merged in
+# with `<<`. Only `id`, `name` and the uri differ per rung.
+ladder_module: &ladder
+  software_environment: omni_data
+  repository:
+    url: https://github.com/btraven00/omni-data
+    commit: eb4d368b5e83b26389e6047dd8bad6badede78f8
+
+# One seed. Seed spread is a different experiment from size scaling -- adding
+# seeds here multiplies every rung and blurs the curve with within-point
+# variance. Add a second axis only once the curve itself is trusted.
+seeds: &seeds [42]
+
+stages:
+  # -------------------------------------------------------------------------
+  # DATA: the ladder. Built by build_tenx_ladder.py; rungs double, and each is
+  # a strict subset of the next (verified all-pairs), so a change along the
+  # curve is "more cells", not "different cells".
+  #
+  # The module id IS {dataset}: api 0.4 passes it as --name and the stage
+  # outputs are "{dataset}.h5ad", so each id must match the stem the files are
+  # published with (tenx-0005k.h5ad, tenx-0005k_properties.yaml, ...).
+  #
+  # NOTE: this ladder has NO cell-type labels -- the truth files are emitted
+  # header-only on purpose. Any metric stage that consumes them is invalid
+  # here, which is why this slice stops at PCA.
+  # -------------------------------------------------------------------------
+  - id: DATA
+    outputs:
+      - id: rawdata_h5ad
+        path: "{dataset}.h5ad"
+      - id: rawdata_clusters_truth
+        path: "{dataset}.clusters_truth.tsv"
+      - id: rawdata_clusters_truth_num
+        path: "{dataset}.clusters_truth_num.txt"
+      - id: properties_info
+        path: "{dataset}_properties.yaml"
+    modules:
+      - id: tenx-0005k
+        name: "TENx ladder: 5k cells"
+        <<: *ladder
+        parameters:
+          - uri: file:///home/b/phd/data/tenx_ladder/tenx-0005k
+            uri_type: directory
+      - id: tenx-0010k
+        name: "TENx ladder: 10k cells"
+        <<: *ladder
+        parameters:
+          - uri: file:///home/b/phd/data/tenx_ladder/tenx-0010k
+            uri_type: directory
+      - id: tenx-0020k
+        name: "TENx ladder: 20k cells"
+        <<: *ladder
+        parameters:
+          - uri: file:///home/b/phd/data/tenx_ladder/tenx-0020k
+            uri_type: directory
+      - id: tenx-0040k
+        name: "TENx ladder: 40k cells"
+        <<: *ladder
+        parameters:
+          - uri: file:///home/b/phd/data/tenx_ladder/tenx-0040k
+            uri_type: directory
+      - id: tenx-0080k
+        name: "TENx ladder: 80k cells"
+        <<: *ladder
+        parameters:
+          - uri: file:///home/b/phd/data/tenx_ladder/tenx-0080k
+            uri_type: directory
+      - id: tenx-0160k
+        name: "TENx ladder: 160k cells"
+        <<: *ladder
+        parameters:
+          - uri: file:///home/b/phd/data/tenx_ladder/tenx-0160k
+            uri_type: directory
+      # ---- rungs past here have not been run end to end yet. The two known
+      # ceilings are upstream (scrapper FILT/NORM/FEAT are in-memory R) and on
+      # the GPU (8GB VRAM on this box). Uncomment one rung at a time.
+      # - id: tenx-0320k
+      #   name: "TENx ladder: 320k cells"
+      #   <<: *ladder
+      #   parameters:
+      #     - uri: file:///home/b/phd/data/tenx_ladder/tenx-0320k
+      #       uri_type: directory
+      # - id: tenx-0640k
+      #   name: "TENx ladder: 640k cells"
+      #   <<: *ladder
+      #   parameters:
+      #     - uri: file:///home/b/phd/data/tenx_ladder/tenx-0640k
+      #       uri_type: directory
+      # - id: tenx-1306k
+      #   name: "TENx ladder: 1.31M cells (whole dataset)"
+      #   <<: *ladder
+      #   parameters:
+      #     - uri: file:///home/b/phd/data/tenx_ladder/tenx-1306k
+      #       uri_type: directory
+
+  # -------------------------------------------------------------------------
+  # FILT / NORM / FEAT: scaffolding, not methods under test. One module, one
+  # parameter set each -- the only job is to hand PCA a normalized, 2000-gene
+  # matrix. These are CPU/R and will dominate wall-clock at the top rungs;
+  # they are NOT part of the scalability measurement.
+  # -------------------------------------------------------------------------
+  - id: FILT
+    inputs:
+      - rawdata_h5ad
+      - properties_info
+    outputs:
+      - id: filtered_cellids
+        path: "{dataset}_cellids.txt.gz"
+    modules:
+      - id: fi-scrapper
+        name: "scrapper-style filtering"
+        software_environment: scrapper
+        repository:
+          url: https://github.com/omni-scrna/scrapper
+          commit: 18843a7
+          entrypoint: filter
+
+  - id: NORM
+    inputs:
+      - rawdata_h5ad
+      - filtered_cellids
+    outputs:
+      - id: normalized_h5
+        path: "{dataset}_normalized.h5"
+    modules:
+      - id: nr-scrapper
+        name: "scrapper-based normalization"
+        software_environment: scrapper
+        repository:
+          url: https://github.com/omni-scrna/scrapper
+          commit: 18843a7
+          entrypoint: normalize
+
+  - id: FEAT
+    inputs:
+      - rawdata_h5ad
+      - normalized_h5
+      - filtered_cellids
+      - properties_info
+    outputs:
+      - id: normalized_selected_h5
+        path: "{dataset}_normalized_selected.h5"
+    modules:
+      - id: fe-scrapper
+        name: "scrapper-based gene selection"
+        software_environment: scrapper
+        repository:
+          url: https://github.com/omni-scrna/scrapper
+          commit: 18843a7
+          entrypoint: select
+        parameters:
+          # Genes fixed across every rung: cells are the axis being varied.
+          - number_selected: 2000
+
+  # -------------------------------------------------------------------------
+  # PCA: the only thing actually under test. Solvers are the second axis, so
+  # a run yields one curve per solver.
+  # -------------------------------------------------------------------------
+  - id: PCA
+    inputs:
+      - normalized_selected_h5
+    outputs:
+      - id: pcas_tsv
+        path: "{dataset}_pcas.tsv"
+      - id: loadings_tsv
+        path: "{dataset}_loadings.tsv"
+    modules:
+      - id: pc-rapids
+        name: "rapids-singlecell PCA (GPU)"
+        software_environment: rapids_singlecell
+        # Capability gating needs omnibenchmark >0.6 (`ob run --with-capability
+        # gpu`). The `ob` pinned here is 0.5.3, which does not gate -- on a box
+        # with no GPU this module must be commented out by hand instead.
+        requires_capabilities: [gpu]
+        repository:
+          url: https://github.com/omni-scrna/rapids-singlecell
+          commit: TODO-pin-a-sha
+          entrypoint: pca
+        parameters:
+          # sparse-only solvers: normalized_selected_h5 loads as CSR and the
+          # module raises rather than let rsc silently swap in another solver.
+          # full/jacobi are dense-only, so they are out.
+          - solver: [covariance-eigh, lanczos, randomized-halko]
+            n_components: 50
+            random_seed: *seeds
