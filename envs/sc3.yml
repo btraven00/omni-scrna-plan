@@ -1,0 +1,16 @@
+name: sc3
+channels:
+  - conda-forge
+  - bioconda
+  - https://repo.prefix.dev/almost-conductor
+  - nodefaults
+dependencies:
+  - r-base >=4.5,<4.6.0
+  - bioconductor-sc3 *
+  - bioconductor-singlecellexperiment *
+  - bioconductor-hdf5array *       # TENxMatrix reader for normalized_selected_h5
+  - bioconductor-rhdf5 *
+  - r-matrix *
+  - r-data.table *
+  - r-argparser *                  # cli.R uses argparser (not argparse)
+  - r-jsonlite *

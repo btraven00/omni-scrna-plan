@@ -52,6 +52,9 @@ software_environments:
   count-factor:
     name: count-factor
     conda: envs/cntfct.yml
+  sc3:
+    name: SC3 consensus clustering
+    conda: envs/sc3.yml
 
 
 stages:
@@ -216,6 +219,27 @@ stages:
           - flavor: ["pearson_residuals"]
             number_selected: 2000
           #- flavor: ["pearson_residuals", "scanpy_seurat", "scanpy_cell_ranger"]
+
+  # How many dimensions the selected matrix supports, as the eigenvalue count
+  # above the Marchenko-Pastur bulk edge (and above that edge plus the
+  # Tracy-Widom fluctuation). Same RMT null pc-rmt-spca counts against, on the
+  # matrix PCA consumes — so it reads directly against PCA's n_components.
+  # NOT a cluster count and not comparable across datasets: the bulk edge moves
+  # with n_cells. Compare across modules within a dataset only.
+  - id: FEAT-M
+    inputs:
+      - normalized_selected_h5
+    outputs:
+      - id: matrix_metrics
+        path: "{dataset}_matrix_metrics.json"
+    modules:
+      - id: mx-metrics-r
+        name: "Matrix metrics in R (RMT dimension count)"
+        software_environment: "metrics"
+        repository:
+          url: https://github.com/omni-scrna/metrics
+          commit: main
+          entrypoint: matrix-r
 
   - id: PCA
     resources:
@@ -536,6 +560,41 @@ stages:
             metric: "cosine"
             cluster_method: "xi"
             xi: 0.05
+            random_seed: 42
+
+  # Clustering straight from the expression matrix: SC3 builds its own cell-cell
+  # distances and consensus, so it takes normalized_selected_h5, not a KNN graph.
+  - id: CLUST-X
+    resources:
+      cores: 4
+    inputs:
+      - normalized_selected_h5
+    outputs:
+      # Same output id as CLUST on purpose: design 010 §3.1 makes a shared output
+      # id a contract, so CLUST-M (which inputs clusters_tsv) picks up both
+      # branches as alternatives and scores each. Needs an ob with the rule-1b
+      # resolver (gather-lean-3); older builds silently drop one branch.
+      - id: clusters_tsv
+        path: "{dataset}_clusters.tsv"
+    modules:
+      - id: cl-sc3
+        name: "SC3 consensus clustering"
+        software_environment: "sc3"
+        exclude:
+          - d-feat-sel
+          - d-annotation
+        repository:
+          url: https://github.com/omni-scrna/sc3
+          commit: main
+          entrypoint: cluster
+        parameters:
+          # k: 0 lets SC3 estimate its own k (Tracy-Widom), which is the point of
+          # comparing it against the resolution-driven CLUST modules.
+          # svm_max caps the O(n_cells^2) part: above it, SC3 clusters a
+          # subsample and extends the labels by SVM.
+          - k: 0
+            svm_max: 5000
+            n_cores: 4
             random_seed: 42
 
   - id: ANNO
