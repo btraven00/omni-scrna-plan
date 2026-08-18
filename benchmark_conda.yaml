@@ -293,6 +293,8 @@ stages:
       - id: nn-scanpy
         name: "scanpy KNN graph"
         software_environment: "scanpy"
+        exclude:
+          - cntfct
         repository:
           url: https://github.com/omni-scrna/scanpy
           commit: 53eb292
@@ -403,6 +405,7 @@ stages:
           - d-pca
           - d-annotation
           - d-feat-sel
+          - cntfct
         repository:
           url: https://github.com/omni-scrna/7-integrate
           commit: d42312a
@@ -416,6 +419,7 @@ stages:
           - d-pca
           - d-annotation
           - d-feat-sel
+          - cntfct
         repository:
           url: https://github.com/omni-scrna/seurat
           commit: ccb7018
@@ -430,6 +434,7 @@ stages:
           - d-pca
           - d-annotation
           - d-feat-sel
+          - cntfct
         repository:
           url: https://github.com/omni-scrna/7-integrate-py
           commit: 73e3340
