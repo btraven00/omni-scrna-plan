@@ -1,5 +1,7 @@
 ob validate plan benchmark_conda.yaml 
 ci/simple-trim.sh
 ob run benchmark_minimal.yaml -d --unpinned
-ob run benchmark_minimal.yaml -c 16 --unpinned
+#ob run benchmark_minimal.yaml -c 16 --unpinned
+prlimit --rss=64g --cpu=10000 ob run benchmark_minimal.yaml -c 8 --unpinned --continue-on-error
+prlimit --rss=64g --cpu=10000 ob run benchmark_conda.yaml -c 8 --unpinned --continue-on-error
 #ob run benchmark_conda.yaml -c 16 -k --unpinned --telemetry --telemetry-output ./telem.jsonl
