@@ -56,6 +56,9 @@ software_environments:
   rapids_singlecell:
     name: rapids-singlecell GPU env (cu13 wheels; needs an NVIDIA GPU + CUDA 13 driver)
     conda: envs/rapids-singlecell.yml
+  rcppml:
+    name: RcppML env (r-rcppml 1.0.0 from the almost-conductor channel; ships RcppML_gpu.so)
+    conda: envs/rcppml.yml
 
 
 # Seed sweep, referenced as *seeds by every embedding producer (PCA and
@@ -216,6 +219,23 @@ stages:
           - solver: [covariance-eigh, lanczos, randomized-halko]
             n_components: 50
             random_seed: *seeds
+      - id: pc-rcppml
+        name: "RcppML truncated SVD"
+        software_environment: "rcppml"
+        repository:
+          url: https://github.com/btraven00/rcppml
+          commit: 28b8cb94d4c819d6b080a7f6f6f9dadec2c9458d
+          entrypoint: pca
+        parameters:
+          # backend: cpu is the portable arm. The gpu one is the same module
+          # with backend: gpu -- it refuses to run (non-zero) rather than
+          # silently fall back to the CPU when no CUDA device is visible, so it
+          # only belongs in a plan run on a GPU box. Below ~10M nonzeros the
+          # CUDA context setup outweighs the gain anyway; be1 is 1.1M.
+          - solver: [lanczos, krylov]
+            n_components: 50
+            random_seed: *seeds
+            backend: cpu
 
   - id: EMBED-M
     inputs:
