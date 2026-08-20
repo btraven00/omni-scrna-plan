@@ -62,6 +62,9 @@ software_environments:
   rapids_singlecell:
     name: rapids-singlecell (GPU)
     conda: envs/rapids-singlecell.yml
+  rcppml:
+    name: RcppML env (r-rcppml 1.0.0 from the almost-conductor channel; ships RcppML_gpu.so)
+    conda: envs/rcppml.yml
 
 stages:
   - id: DATA
@@ -317,6 +320,85 @@ stages:
             n_landmarks: 1000
             landmark_method: min-max
             random_seed: 42
+
+      - id: pc-rcppml
+        name: "RcppML truncated SVD (cpu)"
+        software_environment: "rcppml"
+        exclude:
+          - d-feat-sel
+          - d-annotation
+        repository:
+          url: https://github.com/btraven00/rcppml
+          commit: 28b8cb94d4c819d6b080a7f6f6f9dadec2c9458d
+          entrypoint: pca
+        parameters:
+          - solver: [lanczos, krylov]
+            n_components: 50
+            random_seed: 42
+
+      # Same stage, not strictly a PCA: nmf reads and writes the same
+      # with factors named PC1..PCk so the downstream metrics and validators can read
+      # it unchanged.
+      # But, NMF is only defined on non-negative input; needs extra excludes.
+      - id: pc-rcppml-nmf
+        name: "RcppML NMF (cpu)"
+        software_environment: "rcppml"
+        exclude:
+          - d-feat-sel
+          - d-annotation
+          # NMF is only defined on non-negative input, 
+          # That rules out the Pearson-residual normalisations:
+          # nr-seurat (sctransformv2) and nr-scanpy's
+          # analyticalPearsonResiduals. 
+          # TODO: Split nr-scanpy's two flavors into separate module ids to get the log one.
+          - nr-seurat
+          - nr-scanpy
+        repository:
+          url: https://github.com/btraven00/rcppml
+          commit: 28b8cb94d4c819d6b080a7f6f6f9dadec2c9458d
+          entrypoint: nmf
+        parameters:
+          - loss: [mse]
+            n_components: 50
+            random_seed: 42
+
+      # GPU variants.
+      # We split so that the DAG can run on GPU-less hosts
+      - id: pc-rcppml-gpu
+        name: "RcppML truncated SVD (GPU)"
+        software_environment: "rcppml"
+        requires_capabilities: [gpu]
+        exclude:
+          - d-feat-sel
+          - d-annotation
+        repository:
+          url: https://github.com/btraven00/rcppml
+          commit: 28b8cb94d4c819d6b080a7f6f6f9dadec2c9458d
+          entrypoint: pca
+        parameters:
+          - solver: [lanczos, krylov]
+            n_components: 50
+            random_seed: 42
+            backend: gpu
+
+      - id: pc-rcppml-nmf-gpu
+        name: "RcppML NMF (GPU)"
+        requires_capabilities: [gpu]
+        software_environment: "rcppml"
+        exclude:
+          - d-feat-sel
+          - d-annotation
+          - nr-seurat
+          - nr-scanpy
+        repository:
+          url: https://github.com/btraven00/rcppml
+          commit: 28b8cb94d4c819d6b080a7f6f6f9dadec2c9458d
+          entrypoint: nmf
+        parameters:
+          - loss: [mse]
+            n_components: 50
+            random_seed: 42
+            backend: gpu
 
   - id: EMBED-M
     inputs:
