@@ -1,0 +1,24 @@
+name: rapids-singlecell
+channels:
+- conda-forge
+- nodefaults
+dependencies:
+# rapids-singlecell is on PyPI, not the rapidsai conda channel. NVIDIA's
+# rapids13 wheels bundle their own CUDA 13 runtime, so no cuda-version pin
+# and no rapidsai channel here; the host driver must support CUDA 13.
+# Pinned to 0.14.1 (pure-python wheel) -- 0.15+ ships sdist-only and would
+# force a from-source build against a matching nvcc. Mirrors the module's
+# own pixi.toml; ~5.7GB installed.
+- python >=3.13,<3.14
+- pip
+- pip:
+  - rapids-singlecell[rapids13]==0.14.1
+  # The RAPIDS stack must be pinned too, not just rapids-singlecell: the extra
+  # is unbounded, so pip takes the newest cu13 wheels (26.8) and 0.14.1 dies on
+  # `No module named cuml.internals.input_utils`. 26.4 is what the module's own
+  # pixi.lock resolves. Bump both together.
+  - cudf-cu13==26.4.*
+  - cuml-cu13==26.4.*
+  - cugraph-cu13==26.4.*
+  - dask-cuda==26.4.*
+  - obkit>=0.0.3,<0.0.4

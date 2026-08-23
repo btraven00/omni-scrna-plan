@@ -1,0 +1,213 @@
+name: split-stages-plan
+id: split_stages_plan
+description: "kNN seed-instability slice: everything upstream pinned, 100 kNN seeds, one clustering"
+benchmarker: "Mark Robinson <mark.robinson@mls.uzh.ch>"
+
+version: "0.0.3"
+api_version: "0.4.0"
+
+provenance:
+  canonical_url: https://raw.githubusercontent.com/omni-scrna/split-stages-plan/refs/heads/main/benchmark_conda.yaml
+
+software_backend: "conda"
+
+# DATA/FILT/NORM/FEAT are copied verbatim from out_pbmc/.metadata/benchmark.yaml
+# (module ids, commits and params) so this slice reuses that tree's outputs
+# instead of recomputing 157k cells. Do not "modernise" those blocks to match
+# benchmark_conda.yaml -- the commits and stage outputs differ and the reuse
+# breaks. Run with: --out-dir out_pbmc.
+software_environments:
+  scanpy:
+    name: scanpy multi-module
+    conda: envs/scanpy.yml
+  scrapper:
+    name: scrapper multi-module
+    conda: envs/scrapper.yml
+  metrics:
+    name: metrics env
+    conda: envs/metrics.yaml
+  omni_data:
+    name: omni-data fixture loader
+    conda: envs/omni-data.yml
+  rapids_singlecell:
+    name: rapids-singlecell (GPU)
+    conda: envs/rapids.yml
+
+stages:
+  - id: DATA
+    outputs:
+      - id: rawdata_h5ad
+        path: "{dataset}.h5ad"
+      - id: rawdata_clusters_truth
+        path: "{dataset}.clusters_truth.tsv"
+      - id: rawdata_clusters_truth_num
+        path: "{dataset}.clusters_truth_num.txt"
+      - id: properties_info
+        path: "{dataset}_properties.yaml"
+    modules:
+      - id: pbmc
+        name: "pbmc multimodal (SCT counts) via omni-data file://"
+        software_environment: omni_data
+        repository:
+          url: https://github.com/btraven00/omni-data
+          commit: eb4d368b5e83b26389e6047dd8bad6badede78f8
+        parameters:
+          - uri: file:///home/b/phd/data/pbmc_omnidata
+
+  - id: FILT
+    inputs:
+      - rawdata_h5ad
+      - properties_info
+    outputs:
+      - id: filtered_cellids
+        path: "{dataset}_cellids.txt.gz"
+    modules:
+      - id: fi-scrapper
+        name: "scrapper-style filtering"
+        software_environment: "scrapper"
+        repository:
+          url: https://github.com/omni-scrna/scrapper
+          commit: 18843a7
+          entrypoint: filter
+
+  - id: NORM
+    inputs:
+      - rawdata_h5ad
+      - filtered_cellids
+    outputs:
+      - id: normalized_h5
+        path: "{dataset}_normalized.h5"
+    modules:
+      - id: nr-scrapper
+        name: "scrapper-based normalization"
+        software_environment: "scrapper"
+        repository:
+          url: https://github.com/omni-scrna/scrapper
+          commit: 18843a7
+          entrypoint: normalize
+
+  - id: FEAT
+    inputs:
+      - rawdata_h5ad
+      - normalized_h5
+      - filtered_cellids
+      - properties_info
+    outputs:
+      - id: normalized_selected_h5
+        path: "{dataset}_normalized_selected.h5"
+    modules:
+      - id: fe-scrapper
+        name: "scrapper-based gene selection"
+        software_environment: "scrapper"
+        repository:
+          url: https://github.com/omni-scrna/scrapper
+          commit: 18843a7
+          entrypoint: select
+        parameters:
+          - number_selected: 2000
+
+  - id: PCA
+    resources:
+      cores: 8
+    inputs:
+      - normalized_selected_h5
+    outputs:
+      - id: pcas_tsv
+        path: "{dataset}_pcas.tsv"
+      - id: loadings_tsv
+        path: "{dataset}_loadings.tsv"
+    modules:
+      # covariance-eigh, not lanczos: at pbmc scale rapids' lanczos loses
+      # PC48-50 entirely (|cor| 3e-6 vs an exact reference) while holding on
+      # the be1 fixture. covariance-eigh is exact and deterministic, which
+      # keeps PCA out of the variance budget for a kNN-seed study.
+      - id: pc-rapids
+        name: "rapids-singlecell PCA (GPU)"
+        software_environment: "rapids_singlecell"
+        repository:
+          url: /home/b/lab/omni-scrna/split-stages-plan-modules/rapids-singlecell
+          commit: 0b566d68a93ac825188fc2059a4a435abde946e2
+          entrypoint: pca
+        parameters:
+          - solver: covariance-eigh
+            n_components: 50
+            random_seed: 42
+
+  - id: NNG
+    resources:
+      cores: 4
+    inputs:
+      - pcas_tsv
+    outputs:
+      - id: neighbors_h5
+        path: "{dataset}_neighbors.h5"
+    modules:
+      # The whole point of the slice. At 156,881 cells scanpy picks
+      # PyNNDescentTransformer on its own (its exact dense path only applies
+      # under 8192 cells), so random_seed actually moves the graph here --
+      # on the be1 fixture it does not, and every seed gives byte-identical
+      # output.
+      - id: nn-scanpy
+        name: "scanpy KNN graph"
+        software_environment: "scanpy"
+        repository:
+          url: https://github.com/omni-scrna/scanpy
+          commit: 53eb292
+          entrypoint: knn
+        parameters:
+          - n_neighbors: 15
+            flavor: "umap"
+            random_seed: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+                          11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+                          21, 22, 23, 24, 25, 26, 27, 28, 29, 30,
+                          31, 32, 33, 34, 35, 36, 37, 38, 39, 40,
+                          41, 42, 43, 44, 45, 46, 47, 48, 49, 50,
+                          51, 52, 53, 54, 55, 56, 57, 58, 59, 60,
+                          61, 62, 63, 64, 65, 66, 67, 68, 69, 70,
+                          71, 72, 73, 74, 75, 76, 77, 78, 79, 80,
+                          81, 82, 83, 84, 85, 86, 87, 88, 89, 90,
+                          91, 92, 93, 94, 95, 96, 97, 98, 99, 100]
+
+  # No GRAPH-M / EMBED-M: nn-metrics-r is ~55min and em-metrics-r ~30GB per job
+  # at this scale. x100 they are the whole run. ARI comes from CLUST-M.
+
+  - id: CLUST
+    # cores:8 == "serialize" under `--resources cores=8`: one 8GB GPU, and
+    # concurrent cugraph leiden jobs at 156k cells would race for it.
+    resources:
+      cores: 8
+    inputs:
+      - neighbors_h5
+    outputs:
+      - id: clusters_tsv
+        path: "{dataset}_clusters.tsv"
+    modules:
+      # Leiden's own seed is pinned at 42 so the only thing varying across the
+      # 100 branches is the kNN graph.
+      - id: cl-rapids
+        name: "rapids-singlecell Leiden (GPU)"
+        software_environment: "rapids_singlecell"
+        repository:
+          url: /home/b/lab/omni-scrna/split-stages-plan-modules/rapids-singlecell
+          commit: 0b566d68a93ac825188fc2059a4a435abde946e2
+          entrypoint: cluster
+        parameters:
+          - method: rapids-leiden
+            resolution: 1.0
+            random_seed: 42
+
+  - id: CLUST-M
+    inputs:
+      - clusters_tsv
+      - rawdata_clusters_truth
+    outputs:
+      - id: cluster_metrics
+        path: "{dataset}_cluster_metrics.json"
+    modules:
+      - id: cl-metrics-r
+        name: "Partition metrics in R"
+        software_environment: "metrics"
+        repository:
+          url: https://github.com/omni-scrna/metrics
+          commit: 257c952
+          entrypoint: cluster-r
