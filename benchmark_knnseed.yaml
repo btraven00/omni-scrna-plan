@@ -125,7 +125,7 @@ stages:
         name: "rapids-singlecell PCA (GPU)"
         software_environment: "rapids_singlecell"
         repository:
-          url: /home/b/lab/omni-scrna/split-stages-plan-modules/rapids-singlecell
+          url: https://github.com/btraven00/rapids-singlecell
           commit: 0b566d68a93ac825188fc2059a4a435abde946e2
           entrypoint: pca
         parameters:
@@ -188,7 +188,7 @@ stages:
         name: "rapids-singlecell Leiden (GPU)"
         software_environment: "rapids_singlecell"
         repository:
-          url: /home/b/lab/omni-scrna/split-stages-plan-modules/rapids-singlecell
+          url: https://github.com/btraven00/rapids-singlecell
           commit: 0b566d68a93ac825188fc2059a4a435abde946e2
           entrypoint: cluster
         parameters:
