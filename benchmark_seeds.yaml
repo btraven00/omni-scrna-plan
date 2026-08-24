@@ -177,7 +177,8 @@ stages:
           - n_neighbors: 15
             flavor: "umap"
             random_seed: 42
-            permutation_seed: [0, 1, 2, 3, 4]
+            permutation_seed: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9,
+                               10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
 
   - id: CLUST
     # cores:8 == "serialize" under `--resources cores=8`: one 8GB GPU, and
@@ -227,10 +228,15 @@ stages:
       - id: cluster_metrics
         path: "{dataset}_cluster_metrics.json"
     modules:
+      # 3657ae9 drops AMI: its expected-mutual-information term returns NaN at
+      # this scale in BOTH poem and aricode (sklearn survives it, so it is the
+      # formula in double precision, not a library bug). VM covers the same
+      # ground -- it is NMI with arithmetic averaging, and |AMI - VM| measured
+      # 0.0003 here. Local checkout until the branch is pushed; needs --dirty.
       - id: cl-metrics-r
         name: "Partition metrics in R"
         software_environment: "metrics"
         repository:
-          url: https://github.com/omni-scrna/metrics
-          commit: 257c952
+          url: /home/b/lab/omni-scrna/split-stages-plan-modules/metrics
+          commit: 3657ae9
           entrypoint: cluster-r

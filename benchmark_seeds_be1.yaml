@@ -234,10 +234,15 @@ stages:
       - id: cluster_metrics
         path: "{dataset}_cluster_metrics.json"
     modules:
+      # 3657ae9 drops AMI: its expected-mutual-information term returns NaN at
+      # this scale in BOTH poem and aricode (sklearn survives it, so it is the
+      # formula in double precision, not a library bug). VM covers the same
+      # ground -- it is NMI with arithmetic averaging, and |AMI - VM| measured
+      # 0.0003 here. Local checkout until the branch is pushed; needs --dirty.
       - id: cl-metrics-r
         name: "Partition metrics in R"
         software_environment: "metrics"
         repository:
-          url: https://github.com/omni-scrna/metrics
-          commit: 257c952
+          url: /home/b/lab/omni-scrna/split-stages-plan-modules/metrics
+          commit: 3657ae9
           entrypoint: cluster-r
