@@ -1,0 +1,236 @@
+name: split-stages-plan
+id: split_stages_plan
+description: "seeds slice: everything frozen except the cell-order permutation on NNG"
+benchmarker: "Mark Robinson <mark.robinson@mls.uzh.ch>"
+
+version: "0.0.3"
+api_version: "0.4.0"
+
+provenance:
+  canonical_url: https://raw.githubusercontent.com/omni-scrna/split-stages-plan/refs/heads/main/benchmark_conda.yaml
+
+software_backend: "conda"
+
+# Design notes, so this is not "modernised" into something that no longer answers
+# the question:
+#
+# * ONE axis varies: NNG `permutation_seed`. Everything upstream is frozen, and
+#   `random_seed` is frozen at 42 everywhere including rapids leiden, so the only
+#   thing moving is the order cells are stored in -- which is a scientific no-op
+#   and should therefore change nothing.
+# * Preprocessing is python after FILT (nr-scanpy -> fe-scanpy -> pc-scanpy) to
+#   avoid repeated heavy R reads. FILT has no python module in this benchmark
+#   (fi-scrapper is the only one), but it is a single frozen job so the R
+#   exposure is one cheap run.
+# * PCA is pc-scanpy/arpack: exact and deterministic, so PCA contributes no
+#   variance and is not part of the budget under test.
+# * NO GRAPH-M. nn-metrics-r is ~55min and ~2GB per job at this scale and is
+#   R-only; across permutations it would dominate the run while answering a
+#   question CLUST-M already covers. NO EMBED-M either (~30GB per job).
+# * The upstream arms below are chosen to match what already exists in out_pbmc,
+#   so DATA/FILT/NORM/FEAT/PCA are reused rather than recomputed. Run with
+#   `--out-dir out_pbmc -- --rerun-triggers mtime`. Changing the DATA `uri` (for
+#   example to a published URL) changes its parameter hash and therefore
+#   discards that reuse -- a full recompute, several hours and a 2.6GB refetch.
+
+software_environments:
+  scanpy:
+    name: scanpy multi-module
+    conda: envs/scanpy.yml
+  py_conda:
+    name: Python conda env
+    conda: envs/py.yml
+  scrapper:
+    name: scrapper multi-module
+    conda: envs/scrapper.yml
+  metrics:
+    name: metrics env
+    conda: envs/metrics.yaml
+  omni_data:
+    name: omni-data fixture loader
+    conda: envs/omni-data.yml
+  rapids_singlecell:
+    name: rapids-singlecell (GPU)
+    conda: envs/rapids.yml
+
+stages:
+  - id: DATA
+    outputs:
+      - id: rawdata_h5ad
+        path: "{dataset}.h5ad"
+      - id: rawdata_clusters_truth
+        path: "{dataset}.clusters_truth.tsv"
+      - id: rawdata_clusters_truth_num
+        path: "{dataset}.clusters_truth_num.txt"
+      - id: properties_info
+        path: "{dataset}_properties.yaml"
+    modules:
+      - id: pbmc
+        name: "pbmc multimodal (SCT counts) via omni-data file://"
+        software_environment: omni_data
+        repository:
+          url: https://github.com/btraven00/omni-data
+          commit: eb4d368b5e83b26389e6047dd8bad6badede78f8
+        parameters:
+          - uri: file:///home/b/phd/data/pbmc_omnidata
+
+  - id: FILT
+    inputs:
+      - rawdata_h5ad
+      - properties_info
+    outputs:
+      - id: filtered_cellids
+        path: "{dataset}_cellids.txt.gz"
+    modules:
+      - id: fi-scrapper
+        name: "scrapper-style filtering"
+        software_environment: "scrapper"
+        repository:
+          url: https://github.com/omni-scrna/scrapper
+          commit: 18843a7
+          entrypoint: filter
+
+  - id: NORM
+    inputs:
+      - rawdata_h5ad
+      - filtered_cellids
+    outputs:
+      - id: normalized_h5
+        path: "{dataset}_normalized.h5"
+    modules:
+      - id: nr-scanpy
+        name: "Python-based scRNA-seq normalization methods"
+        software_environment: "py_conda"
+        repository:
+          url: https://github.com/omni-scrna/scanpy
+          commit: 53eb292
+          entrypoint: normalize
+        parameters:
+          - flavor: ["log1pCP10k"]
+
+  - id: FEAT
+    inputs:
+      - rawdata_h5ad
+      - normalized_h5
+      - filtered_cellids
+      - properties_info
+    outputs:
+      - id: normalized_selected_h5
+        path: "{dataset}_normalized_selected.h5"
+    modules:
+      - id: fe-scanpy
+        name: "scanpy-based gene selection"
+        software_environment: "scanpy"
+        repository:
+          url: https://github.com/omni-scrna/scanpy
+          commit: 53eb292
+          entrypoint: feat-select
+        parameters:
+          - flavor: ["scanpy_seurat"]
+            number_selected: 2000
+
+  - id: PCA
+    resources:
+      cores: 8
+    inputs:
+      - normalized_selected_h5
+    outputs:
+      - id: pcas_tsv
+        path: "{dataset}_pcas.tsv"
+      - id: loadings_tsv
+        path: "{dataset}_loadings.tsv"
+    modules:
+      # arpack: exact and deterministic, so PCA adds no variance of its own.
+      - id: pc-scanpy
+        name: "scanpy PCA"
+        software_environment: "scanpy"
+        repository:
+          url: https://github.com/omni-scrna/scanpy
+          commit: 53eb292
+          entrypoint: pca
+        parameters:
+          - solver: arpack
+            n_components: 50
+            random_seed: 42
+
+  - id: NNG
+    resources:
+      cores: 4
+    inputs:
+      - pcas_tsv
+    outputs:
+      - id: neighbors_h5
+        path: "{dataset}_neighbors.h5"
+    modules:
+      # THE axis. permutation_seed shuffles cell order before the graph is built;
+      # 0 is the identity, i.e. the control arm. random_seed is frozen so the ANN
+      # seed contributes nothing. Local checkout until the branch is pushed --
+      # needs --dirty.
+      - id: nn-scanpy
+        name: "scanpy KNN graph"
+        software_environment: "scanpy"
+        repository:
+          url: /home/b/lab/omni-scrna/split-stages-plan-modules/scanpy
+          commit: 28746ef
+          entrypoint: knn
+        parameters:
+          - n_neighbors: 15
+            flavor: "umap"
+            random_seed: 42
+            permutation_seed: [0, 1, 2, 3, 4]
+
+  - id: CLUST
+    # cores:8 == "serialize" under `--resources cores=8`: one 8GB GPU, and
+    # concurrent cugraph leiden jobs would race for it.
+    resources:
+      cores: 8
+    inputs:
+      - neighbors_h5
+    outputs:
+      - id: clusters_tsv
+        path: "{dataset}_clusters.tsv"
+    modules:
+      # Two clusterers on identical graphs. They return different cluster counts
+      # (19 vs 16 on pbmc-20k) at essentially equal modularity (0.8181 vs 0.8149)
+      # -- equally-valid local optima, not a misconfiguration. Do NOT try to
+      # harmonize n_iterations across them: igraph counts Leiden passes and
+      # cugraph counts hierarchy levels, and a shared value of 2 gives cugraph
+      # 962 clusters.
+      - id: cl-scanpy
+        name: "scanpy Leiden clustering"
+        software_environment: "scanpy"
+        repository:
+          url: https://github.com/omni-scrna/scanpy
+          commit: 7cf3472
+          entrypoint: cluster
+        parameters:
+          - flavor: igraph
+            resolution: 1.0
+            random_seed: 42
+      - id: cl-rapids
+        name: "rapids-singlecell Leiden (GPU)"
+        software_environment: "rapids_singlecell"
+        repository:
+          url: https://github.com/btraven00/rapids-singlecell
+          commit: 0b566d68a93ac825188fc2059a4a435abde946e2
+          entrypoint: cluster
+        parameters:
+          - method: rapids-leiden
+            resolution: 1.0
+            random_seed: 42
+
+  - id: CLUST-M
+    inputs:
+      - clusters_tsv
+      - rawdata_clusters_truth
+    outputs:
+      - id: cluster_metrics
+        path: "{dataset}_cluster_metrics.json"
+    modules:
+      - id: cl-metrics-r
+        name: "Partition metrics in R"
+        software_environment: "metrics"
+        repository:
+          url: https://github.com/omni-scrna/metrics
+          commit: 257c952
+          entrypoint: cluster-r
