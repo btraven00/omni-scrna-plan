@@ -1,0 +1,36 @@
+---
+name: sc3s
+channels:
+  - conda-forge
+dependencies:
+  # sc3s' metadata pins numpy<2, so this arm runs numpy 1.x while every Leiden
+  # arm it is compared against runs 2.x. MEASURED HARMLESS: the same sc3s call
+  # on the same 156,881-cell embedding gives a byte-identical partition under
+  # 1.26.4 and 2.5.2 (sha256 0d869688633f6a67 both ways) --
+  # omni-knn-seed/numpy_control.py. So the pin is left in place and stated,
+  # rather than fought.
+  #
+  # Fighting it is not possible here anyway: conda honours an unpinned `numpy`
+  # (it installed 2.4.6), and then pip overwrites it with 1.26.4 to satisfy
+  # sc3s. A conda `pip:` block cannot pass --no-deps -- pip rejects it as a
+  # requirement line -- so the only routes to numpy 2 are vendoring or forking
+  # sc3s, both of which would stop this being stock PyPI sc3s.
+  - python=3.11
+  - numpy<2
+  # sc3s itself is not on conda-forge/bioconda, so it comes from pip. Every one
+  # of its declared deps is listed here so conda solves them and pip only has
+  # sc3s left to install (a requirements block cannot pass --no-deps).
+  - pandas
+  - polars   # same TSV read path as the scanpy fork's knn.py
+  - scikit-learn
+  - scanpy
+  - scipy
+  - h5py
+  - joblib
+  - seaborn
+  - six
+  - setuptools
+  - python-dateutil
+  - pip
+  - pip:
+      - sc3s==0.1.1

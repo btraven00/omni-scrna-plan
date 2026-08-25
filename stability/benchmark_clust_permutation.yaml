@@ -1,0 +1,272 @@
+id: split_stages_plan
+name: split-stages-plan
+description: "permutation slice: everything frozen except the cell-order permutation on NNG"
+benchmarker: "Ben Carrillo <ben.uzh@proton.me>"
+
+version: "0.0.3"
+api_version: "0.4.0"
+
+provenance:
+  canonical_url: https://raw.githubusercontent.com/omni-scrna/split-stages-plan/refs/heads/main/benchmark_conda.yaml
+
+software_backend: "conda"
+
+# Design notes: 
+#
+# *  Only ONE axis of variation: cell-order permutation. Everything upstream is frozen, and
+#   `random_seed` is frozen at 42 everywhere including rapids-leiden, so the only
+#   thing moving is the order cells are stored in. Which in principle we assume to be a
+#   scientific no-op and should therefore change nothing.
+#   Same operation enters the graph arms as NNG `permutation_seed` and the
+#   non-graph arm as CLUST-E `permutation_seed`, because sc3s reads pcas_tsv rather than the
+#   graph. Same seed, same convention, same file -> same row order in both, so
+#   they are paired.
+# * PCA is pc-scanpy/arpack: exact and deterministic, so PCA contributes no
+#   variance and is not part of the budget under test.
+
+# Env paths resolve relative to THIS file, not to the invocation directory,
+# hence ../envs/ -- the envs stay shared with benchmark_conda.yaml at the root.
+software_environments:
+  scanpy:
+    name: scanpy multi-module
+    conda: ../envs/scanpy.yml
+  py_conda:
+    name: Python conda env
+    conda: ../envs/py.yml
+  scrapper:
+    name: scrapper multi-module
+    conda: ../envs/scrapper.yml
+  metrics:
+    name: metrics env
+    conda: ../envs/metrics.yaml
+  omni_data:
+    name: omni-data fixture loader
+    conda: ../envs/omni-data.yml
+  rapids_singlecell:
+    name: rapids-singlecell (GPU)
+    conda: ../envs/rapids.yml
+  sc3s:
+    name: SC3s consensus clustering
+    conda: ../envs/sc3s.yml
+
+stages:
+  - id: DATA
+    outputs:
+      - id: rawdata_h5ad
+        path: "{dataset}.h5ad"
+      - id: rawdata_clusters_truth
+        path: "{dataset}.clusters_truth.tsv"
+      - id: rawdata_clusters_truth_num
+        path: "{dataset}.clusters_truth_num.txt"
+      - id: properties_info
+        path: "{dataset}_properties.yaml"
+    modules:
+      - id: pbmc
+        name: "pbmc multimodal (SCT counts) via omni-data file://"
+        software_environment: omni_data
+        repository:
+          url: https://github.com/btraven00/omni-data
+          commit: eb4d368b5e83b26389e6047dd8bad6badede78f8
+        parameters:
+          - uri: file:///home/b/phd/data/pbmc_omnidata
+
+  - id: FILT
+    inputs:
+      - rawdata_h5ad
+      - properties_info
+    outputs:
+      - id: filtered_cellids
+        path: "{dataset}_cellids.txt.gz"
+    modules:
+      - id: fi-scrapper
+        name: "scrapper-style filtering"
+        software_environment: "scrapper"
+        repository:
+          url: https://github.com/omni-scrna/scrapper
+          commit: 18843a7
+          entrypoint: filter
+
+  - id: NORM
+    inputs:
+      - rawdata_h5ad
+      - filtered_cellids
+    outputs:
+      - id: normalized_h5
+        path: "{dataset}_normalized.h5"
+    modules:
+      - id: nr-scanpy
+        name: "Python-based scRNA-seq normalization methods"
+        software_environment: "py_conda"
+        repository:
+          url: https://github.com/omni-scrna/scanpy
+          commit: 53eb292
+          entrypoint: normalize
+        parameters:
+          - flavor: ["log1pCP10k"]
+
+  - id: FEAT
+    inputs:
+      - rawdata_h5ad
+      - normalized_h5
+      - filtered_cellids
+      - properties_info
+    outputs:
+      - id: normalized_selected_h5
+        path: "{dataset}_normalized_selected.h5"
+    modules:
+      - id: fe-scanpy
+        name: "scanpy-based gene selection"
+        software_environment: "scanpy"
+        repository:
+          url: https://github.com/omni-scrna/scanpy
+          commit: 53eb292
+          entrypoint: feat-select
+        parameters:
+          - flavor: ["scanpy_seurat"]
+            number_selected: 2000
+
+  - id: PCA
+    resources:
+      cores: 8
+    inputs:
+      - normalized_selected_h5
+    outputs:
+      - id: pcas_tsv
+        path: "{dataset}_pcas.tsv"
+      - id: loadings_tsv
+        path: "{dataset}_loadings.tsv"
+    modules:
+      # arpack: exact and deterministic, so PCA adds no variance of its own.
+      - id: pc-scanpy
+        name: "scanpy PCA"
+        software_environment: "scanpy"
+        repository:
+          url: https://github.com/omni-scrna/scanpy
+          commit: 53eb292
+          entrypoint: pca
+        parameters:
+          - solver: arpack
+            n_components: 50
+            random_seed: 42
+
+  - id: NNG
+    resources:
+      cores: 4
+    inputs:
+      - pcas_tsv
+    outputs:
+      - id: neighbors_h5
+        path: "{dataset}_neighbors.h5"
+    modules:
+      # THE axis. permutation_seed shuffles cell order before the graph is built;
+      # 0 is the identity, i.e. the control arm. random_seed is frozen so the ANN
+      # seed contributes nothing. Branch ref, so this needs --unpinned.
+      - id: nn-scanpy
+        name: "scanpy KNN graph"
+        software_environment: "scanpy"
+        repository:
+          url: https://github.com/omni-scrna/scanpy
+          commit: knn-permutation
+          entrypoint: knn
+        parameters:
+          - n_neighbors: 15
+            flavor: "umap"
+            random_seed: 42
+            permutation_seed: &permutation_seeds
+                              [0, 1, 2, 3, 4, 5, 6, 7, 8, 9,
+                               10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
+                               20, 21, 22, 23, 24, 25, 26, 27, 28, 29,
+                               30, 31, 32, 33, 34, 35, 36, 37, 38, 39,
+                               40, 41, 42, 43, 44, 45, 46, 47, 48, 49]
+
+  - id: CLUST
+    # cores:8 == "serialize" under `--resources cores=8`: one 8GB GPU, and
+    # concurrent cugraph leiden jobs would race for it.
+    resources:
+      cores: 8
+    inputs:
+      - neighbors_h5
+    outputs:
+      - id: clusters_tsv
+        path: "{dataset}_clusters.tsv"
+    modules:
+      # Two clusterers on identical graphs.
+      # Do NOT try to
+      # harmonize n_iterations across them: igraph counts Leiden passes and
+      # cugraph counts hierarchy levels, and a shared value of 2 gives cugraph
+      # 962 clusters.
+      - id: cl-scanpy
+        name: "scanpy Leiden clustering"
+        software_environment: "scanpy"
+        repository:
+          url: https://github.com/omni-scrna/scanpy
+          commit: 7cf3472
+          entrypoint: cluster
+        parameters:
+        # resolution is TWO values.
+        # Resolution of 0.4 is somehow picked to approximate the optimal number of clusters
+        # on pbmc-seurat dataset.
+          - flavor: igraph
+            resolution: [0.4, 1.0]
+            random_seed: 42
+      - id: cl-rapids
+        name: "rapids-singlecell Leiden (GPU)"
+        software_environment: "rapids_singlecell"
+        repository:
+          url: https://github.com/btraven00/rapids-singlecell
+          commit: 0b566d68a93ac825188fc2059a4a435abde946e2
+          entrypoint: cluster
+        parameters:
+        # resolution is TWO values.
+        # Resolution of 0.4 is somehow picked to approximate the optimal number of clusters
+        # on pbmc-seurat dataset.
+          - method: rapids-leiden
+            resolution: [0.4, 1.0]
+            random_seed: 42
+
+  - id: CLUST-M
+    inputs:
+      - clusters_tsv
+      - rawdata_clusters_truth
+    outputs:
+      - id: cluster_metrics
+        path: "{dataset}_cluster_metrics.json"
+    modules:
+      # AMI is NaN for most rows at this scale; published metrics still emits it,
+      # so read VM instead and ignore the column. No local pin needed.
+      - id: cl-metrics-r
+        name: "Partition metrics in R"
+        software_environment: "metrics"
+        repository:
+          url: https://github.com/omni-scrna/metrics
+          commit: 257c952
+          entrypoint: cluster-r
+
+  - id: CLUST-E
+    inputs:
+      - pcas_tsv
+    outputs:
+      - id: clusters_tsv
+        path: "{dataset}_clusters.tsv"
+    modules:
+      # The non-graph arm of clustering. sc3s never builds a kNN graph
+      # it does mini-batch k-means over the PC matrix plus a consensus over the
+      # microclusters; so the permutation has to enter here, at the same
+      # pcas_tsv the NNG arm reads.
+      # Branch ref, so this needs --unpinned.
+      #
+      # k is frozen at 20 to sit next to cl-scanpy's resolution 1.0 (k19), since
+      # sc3s takes k as input and its k never moves.
+      - id: cl-sc3s
+        name: "SC3s consensus clustering"
+        software_environment: "sc3s"
+        repository:
+          url: https://github.com/omni-scrna/sc3s
+          commit: main
+          entrypoint: cluster
+        parameters:
+          - n_clusters: 20
+            d_range: 25
+            n_runs: [5, 25, 50, 100]
+            random_seed: 42
+            permutation_seed: *permutation_seeds
