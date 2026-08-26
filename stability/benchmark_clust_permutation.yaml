@@ -267,6 +267,13 @@ stages:
         parameters:
           - n_clusters: 20
             d_range: 25
-            n_runs: [5, 25, 50, 100]
+            # ONE value, not a sweep: n_runs is consensus depth, a different
+            # question from cell order, and at 50 permutations the four-value
+            # version was 81% of the whole run (700s/seed of 864s, measured on
+            # full pbmc). 10 runs keeps sc3s as the non-graph arm for ~42s/seed.
+            # Caveat when reading the result: n_runs is itself a stability knob,
+            # so this arm's order-stability is "sc3s at n_runs=10", not sc3s in
+            # general. Sweep n_runs in its own slice if that matters.
+            n_runs: 10
             random_seed: 42
             permutation_seed: *permutation_seeds
