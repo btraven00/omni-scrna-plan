@@ -169,15 +169,26 @@ stages:
           commit: knn-permutation
           entrypoint: knn
         parameters:
+          # THE grid: 20 x 20 = 400 graphs. Crossed, not two marginal arms,
+          # because the question is whether the ANN seed and cell order are
+          # independent -- if they are, the seed spread is the same at every
+          # permutation and the interaction term is zero; if they are not, one
+          # permutation makes the graph seed-fragile and another does not, and
+          # only the cross can show it. Both marginals are still inside the grid
+          # (fix random_seed -> 20 permutations; permutation_seed 0 -> 20 seeds),
+          # so nothing is lost by not listing them separately.
+          #
+          # 20 each, not 50: the cross is quadratic and 50 x 50 is 2500 graphs,
+          # ~10x this slice's compute. Widen one axis only after the interaction
+          # reads as flat.
           - n_neighbors: 15
             flavor: "umap"
-            random_seed: 42
+            random_seed: &random_seeds
+                         [1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+                          11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
             permutation_seed: &permutation_seeds
                               [0, 1, 2, 3, 4, 5, 6, 7, 8, 9,
-                               10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
-                               20, 21, 22, 23, 24, 25, 26, 27, 28, 29,
-                               30, 31, 32, 33, 34, 35, 36, 37, 38, 39,
-                               40, 41, 42, 43, 44, 45, 46, 47, 48, 49]
+                               10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
 
   - id: CLUST
     # cores:8 == "serialize" under `--resources cores=8`: one 8GB GPU, and
@@ -275,5 +286,8 @@ stages:
             # so this arm's order-stability is "sc3s at n_runs=10", not sc3s in
             # general. Sweep n_runs in its own slice if that matters.
             n_runs: 10
-            random_seed: 42
+            # Same 20 x 20 grid, same anchors. sc3s reads pcas_tsv, so it never
+            # sees NNG's seed -- its own k-means seed is the axis that plays the
+            # ANN seed's role here.
+            random_seed: *random_seeds
             permutation_seed: *permutation_seeds
