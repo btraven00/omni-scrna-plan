@@ -13,7 +13,7 @@ software_backend: "conda"
 
 # Design notes: 
 #
-# *  Only ONE axis of variation: cell-order permutation. Everything upstream is frozen, and
+# *  Two axis of variation: cell-order permutation and random_seed. Everything upstream is frozen, and
 #   `random_seed` is frozen at 42 everywhere including rapids-leiden, so the only
 #   thing moving is the order cells are stored in. Which in principle we assume to be a
 #   scientific no-op and should therefore change nothing.
@@ -219,7 +219,8 @@ stages:
         # on pbmc-seurat dataset.
           - flavor: igraph
             resolution: [0.4, 1.0]
-            random_seed: 42
+            # random_seed: 42
+            random_seed: *random_seeds
       - id: cl-rapids
         name: "rapids-singlecell Leiden (GPU)"
         software_environment: "rapids_singlecell"
@@ -233,25 +234,8 @@ stages:
         # on pbmc-seurat dataset.
           - method: rapids-leiden
             resolution: [0.4, 1.0]
-            random_seed: 42
-
-  - id: CLUST-M
-    inputs:
-      - clusters_tsv
-      - rawdata_clusters_truth
-    outputs:
-      - id: cluster_metrics
-        path: "{dataset}_cluster_metrics.json"
-    modules:
-      # AMI is NaN for most rows at this scale; published metrics still emits it,
-      # so read VM instead and ignore the column. No local pin needed.
-      - id: cl-metrics-r
-        name: "Partition metrics in R"
-        software_environment: "metrics"
-        repository:
-          url: https://github.com/omni-scrna/metrics
-          commit: 257c952
-          entrypoint: cluster-r
+            # random_seed: 42
+            random_seed: *random_seeds
 
   - id: CLUST-E
     inputs:
@@ -291,3 +275,22 @@ stages:
             # ANN seed's role here.
             random_seed: *random_seeds
             permutation_seed: *permutation_seeds
+
+  - id: CLUST-M
+    inputs:
+      - clusters_tsv
+      - rawdata_clusters_truth
+    outputs:
+      - id: cluster_metrics
+        path: "{dataset}_cluster_metrics.json"
+    modules:
+      # AMI is NaN for most rows at this scale; published metrics still emits it,
+      # so read VM instead and ignore the column. No local pin needed.
+      - id: cl-metrics-r
+        name: "Partition metrics in R"
+        software_environment: "metrics"
+        repository:
+          url: https://github.com/omni-scrna/metrics
+          commit: 257c952
+          entrypoint: cluster-r
+
