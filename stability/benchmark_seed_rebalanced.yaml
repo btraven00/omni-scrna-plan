@@ -18,9 +18,19 @@ software_backend: "conda"
 #   magnitude below the knob anyone actually turns. Nothing is spent on this.
 #
 # * Leiden's own seed contributed an estimated ZERO between-level variance
-#   (CI [0, 0.0007]) and never determined whether the failure below fired. It
-#   drops from a 10-level axis to a 3-level CONTROL, kept only so the claim
-#   stays falsifiable rather than assumed.
+#   (CI [0, 0.0007]) and never determined whether the failure below fired. Read
+#   that correctly: the seed is NOT inert. Ten leiden seeds at a fixed embedding
+#   and permutation give ten DISTINCT clusters_tsv with k 43-46 (checked in
+#   out_perm on three separate cells), and scanpy/cluster.py passes
+#   --random_seed straight into sc.tl.leiden(random_state=...). Zero
+#   between-level variance is what a working seed looks like: it re-rolls the
+#   partition rather than shifting a level mean, so its effect lands in the
+#   residual. Its conditional spread is 0.0037 ARI, same as the other two axes.
+#   It drops from a 10-level axis to a 5-level CONTROL because it is a nuisance
+#   axis with no level structure, not because it does nothing.
+#
+#   Corollary that shapes the cugraph arm below: the test for an inert seed is
+#   IDENTITY OF OUTPUTS, never the size of a variance component.
 #
 # * The finding worth costing compute is the tail: 15 of 1100 runs bisected
 #   `microglial cell` (4,341 cells, the largest label, brain-only, 20 plates)
@@ -95,9 +105,6 @@ software_environments:
   rapids_singlecell:
     name: rapids-singlecell (GPU)
     conda: ../envs/rapids.yml
-  pgs:
-    name: PyGenStability (Markov Stability)
-    conda: ../envs/pgs.yml
 
 # 28 embeddings, up from 10. This is where the budget went: the vulnerable-
 # embedding fraction is the number the last run could not pin down.
