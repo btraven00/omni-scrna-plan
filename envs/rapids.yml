@@ -11,6 +11,8 @@ dependencies:
 # own pixi.toml; ~5.7GB installed.
 - python >=3.13,<3.14
 - pip
+# writers.py shares the scanpy module's polars TSV writer; same pin there.
+- polars >=1,<2
 - pip:
   - rapids-singlecell[rapids13]==0.14.1
   # The RAPIDS stack must be pinned too, not just rapids-singlecell: the extra
