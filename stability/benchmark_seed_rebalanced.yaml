@@ -1,0 +1,422 @@
+name: split-stages-plan
+id: split_stages_plan
+description: "rebalanced seed exploration: embeddings x cell order x resolution"
+benchmarker: "Mark Robinson <mark.robinson@mls.uzh.ch>"
+
+version: "0.1.0"
+api_version: "0.4.0"
+
+software_backend: "conda"
+
+# REBALANCED successor to benchmark_seed_factorial.yaml (run 143331a1).
+#
+# What that run settled, and why this one is shaped differently:
+#
+# * The variance components are done. ARI's PCA-seed sd came out 0.0022 with a
+#   profile CI of [0.0013, 0.0036] -- a CI 1.1% as wide as the resolution effect
+#   on the same data. More seeds narrows a number already two orders of
+#   magnitude below the knob anyone actually turns. Nothing is spent on this.
+#
+# * Leiden's own seed contributed an estimated ZERO between-level variance
+#   (CI [0, 0.0007]) and never determined whether the failure below fired. It
+#   drops from a 10-level axis to a 3-level CONTROL, kept only so the claim
+#   stays falsifiable rather than assumed.
+#
+# * The finding worth costing compute is the tail: 15 of 1100 runs bisected
+#   `microglial cell` (4,341 cells, the largest label, brain-only, 20 plates)
+#   74/26, dropping ARI from ~0.733 to ~0.666 while the entropy metrics moved
+#   ~0.1%. Checked against the cluster assignments: every other label is
+#   unchanged, and the split is NOT batch -- the minor piece is 14-41% of every
+#   plate's microglia and 18-37% of every mouse's. So it is a real bistable
+#   graph cut, not a reference artefact and not a batch effect.
+#
+# * That failure lives on EMBEDDINGS, not on seeds-in-general: 2 of 11
+#   embeddings were vulnerable, and within a vulnerable one ~3 of 10
+#   permutation seeds fired it. The decision-relevant quantity is therefore
+#   "what fraction of embeddings are vulnerable", and 2/11 is a 95% CI of
+#   [2%, 52%] -- useless. 28 embeddings takes it to [6%, 37%] for the same
+#   compute, by moving the budget off the axes that measured nothing.
+#
+# THE BUDGET MOVE, in one line:
+#   was  11 embeddings x 10 perm x 10 leiden x 1 resolution = 1100 runs, 1 clusterer
+#   now  29 embeddings x  5 perm x (6 res + 5 seed control) = 1595 runs per
+#        clusterer, x 2 clusterers (igraph, cugraph) on the identical graphs
+#
+# Resolution is the new axis and it is the point of the run. Everything in
+# 143331a1 sat at res 0.5, the measured ARI optimum -- plausibly a sharp basin,
+# and stability there may be nothing like stability elsewhere. Resolution moves
+# ARI across 0.55-0.73 on THIS dataset (measured, exact PCA + perm 0), so
+# crossing it with cell order asks the question that decides whether any of
+# this generalises: does instability track how well-determined the solution is?
+# If it does, cross-dataset instability comparisons are confounded by operating
+# point and must be made at each dataset's own optimum. If it does not, the
+# dataset effect is real. Either answer is worth having; not knowing is not.
+#
+# Resolution is also cheap in the right way: it is a CLUST parameter, so it
+# multiplies the 7.8s stage, not the 53s NNG stage.
+#
+# permutation_seed 0 IS INCLUDED this time. It is the identity permutation --
+# the unshuffled control -- and 143331a1 swept [1..10] without it, so that run
+# has no un-permuted baseline and every comparison in it is seed-vs-seed. With
+# 0 present, each arm gets a per-run stability number that fits one row of the
+# parquet: ARI(this run, the seed-0 run at the same embedding and resolution).
+# That is an anchored N comparison rather than an N^2 one -- see the note at the
+# bottom of this file.
+#
+# STILL FROZEN, and still not free: NNG random_seed stays at 42. The ANN seed
+# is a fourth variance source the plan's own 3x3 grid measures as the same size
+# as cell order on tm-facs (partition ARI 0.9762 vs 0.9794). It is held here
+# only to keep the NNG stage from doubling; benchmark_ann_control.yaml sweeps
+# it on 3 embeddings instead, which is where it belongs.
+#
+# Cost. On roland (143331a1 medians: PCA 8s, NNG 53s, CLUST 7.8s) this is
+# ~7.5h. On the local box the same stages measure roughly half -- NNG 21-28s
+# and igraph CLUST 3.3s in out_facs_sweep -- so ~3.5-4h, with the CLUST stage
+# serialized by the cores:8 declaration above. Resolution does not affect CLUST
+# runtime (3.33-3.38s flat across the whole sweep, measured), so the new axis
+# costs exactly its node count and nothing more.
+
+software_environments:
+  scanpy:
+    name: scanpy multi-module
+    conda: ../envs/scanpy.yml
+  py_conda:
+    name: Python conda env
+    conda: ../envs/py.yml
+  scrapper:
+    name: scrapper multi-module
+    conda: ../envs/scrapper.yml
+  metrics:
+    name: metrics env
+    conda: ../envs/metrics.yaml
+  omni_data:
+    name: omni-data fixture loader
+    conda: ../envs/omni-data-pinned.yml
+  rapids_singlecell:
+    name: rapids-singlecell (GPU)
+    conda: ../envs/rapids.yml
+  pgs:
+    name: PyGenStability (Markov Stability)
+    conda: ../envs/pgs.yml
+
+# 28 embeddings, up from 10. This is where the budget went: the vulnerable-
+# embedding fraction is the number the last run could not pin down.
+pca_seeds: &pca_seeds [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28]
+
+# 0 is the IDENTITY permutation -- the anchor arm, see the note at the bottom.
+# 5 levels, down from 10: the permutation main effect in 143331a1 was entirely
+# the 15 tail points, and once those are removed its variance component is
+# exactly 0. What matters is whether an embedding fires at all, and 4 non-zero
+# draws per embedding on 28 embeddings gives 112 chances against the old 100.
+perm_seeds: &perm_seeds [0, 1, 2, 3, 4]
+
+# THE new axis. 0.5 is the measured ARI optimum on tm-facs; the sweep brackets
+# it either side so "distance from the optimum" is a continuous predictor
+# rather than two points. Values reuse the sweep already run at perm 0, so the
+# existing points are directly comparable.
+resolutions: &resolutions [0.1, 0.25, 0.5, 0.75, 1.0, 2.0]
+
+# Clusterer-seed CONTROL, applied identically to both clusterers at the optimum
+# resolution. 5 levels, not a full axis -- enough to falsify "the clusterer seed
+# contributes nothing", cheap enough not to compete with the embedding axis.
+leiden_seeds: &leiden_seeds [1, 2, 3, 4, 5]
+stages:
+  - id: DATA
+    outputs:
+      - id: rawdata_h5ad
+        path: "{dataset}.h5ad"
+      - id: rawdata_clusters_truth
+        path: "{dataset}.clusters_truth.tsv"
+      - id: rawdata_clusters_truth_num
+        path: "{dataset}.clusters_truth_num.txt"
+      - id: properties_info
+        path: "{dataset}_properties.yaml"
+    modules:
+      # omni-data directory mode serves the whole directory, which is exactly
+      # the four-file DATA contract (h5ad + clusters_truth.tsv +
+      # clusters_truth_num.txt + _properties.yaml). One directory per dataset
+      # id: point this at a parent and every dataset under it gets fetched.
+      #
+      # The module id IS {dataset} under api 0.4.0 -- it is passed as --name and
+      # the outputs are "{dataset}.h5ad" -- so `tm-facs` must match the file
+      # stems and the directory name.
+      #
+      # file:// is not reproducible: it resolves against whatever is on that
+      # machine. Swap to https://omnibenchmark.mls.uzh.ch/datasets/tm-facs/
+      # (keeping uri_type) before any result is quoted; the directory ships a
+      # .sha256 manifest for checking:
+      - id: tm-facs
+        name: "Tabula Muris FACS via omni-data (on-disk directory)"
+        software_environment: omni_data
+        repository:
+          url: https://github.com/btraven00/omni-data
+          commit: 80611e83d13c8bd0d15fbc033c6a5e1a7900a0b8
+        parameters:
+          - uri: file:///home/ben/tm_omnidata/tm-facs/
+            uri_type: directory
+
+  - id: FILT
+    inputs:
+      - rawdata_h5ad
+      - properties_info
+    outputs:
+      - id: filtered_cellids
+        path: "{dataset}_cellids.txt.gz"
+    modules:
+      - id: fi-scrapper
+        name: "scrapper-style filtering"
+        software_environment: "scrapper"
+        repository:
+          url: https://github.com/omni-scrna/scrapper
+          commit: 18843a7
+          entrypoint: filter
+
+  - id: NORM
+    inputs:
+      - rawdata_h5ad
+      - filtered_cellids
+    outputs:
+      - id: normalized_h5
+        path: "{dataset}_normalized.h5"
+    modules:
+      - id: nr-scanpy
+        name: "Python-based scRNA-seq normalization methods"
+        software_environment: "py_conda"
+        repository:
+          url: https://github.com/omni-scrna/scanpy
+          commit: 53eb292
+          entrypoint: normalize
+        parameters:
+          - flavor: ["log1pCP10k"]
+
+  - id: FEAT
+    inputs:
+      - rawdata_h5ad
+      - normalized_h5
+      - filtered_cellids
+      - properties_info
+    outputs:
+      - id: normalized_selected_h5
+        path: "{dataset}_normalized_selected.h5"
+    modules:
+      - id: fe-scanpy
+        name: "scanpy-based gene selection"
+        software_environment: "scanpy"
+        repository:
+          url: https://github.com/omni-scrna/scanpy
+          commit: 53eb292
+          entrypoint: feat-select
+        parameters:
+          - flavor: ["scanpy_seurat"]
+            number_selected: 2000
+
+  - id: PCA
+    resources:
+      cores: 2
+      gpu: 1
+    inputs:
+      - normalized_selected_h5
+    outputs:
+      - id: pcas_tsv
+        path: "{dataset}_pcas.tsv"
+      - id: loadings_tsv
+        path: "{dataset}_loadings.tsv"
+    modules:
+      # 1 EXACT. Deterministic embedding, so its branch carries zero PCA
+      # variance and calibrates "no PCA effect" inside the design.
+      #
+      # The scalar 42 is NOT an eleventh level -- the module requires
+      # --random_seed and covariance-eigh does not use it. Verified in
+      # 143331a1: the exact subspace is constant to 1.5e-3 deg across seeds
+      # where halko moves 88 deg. Note also that being deterministic did not
+      # make it safe: it was one of the two vulnerable embeddings.
+      - id: pc-rapids-exact
+        name: "rapids-singlecell PCA, covariance-eigh (GPU)"
+        software_environment: "rapids_singlecell"
+        repository:
+          url: https://github.com/omni-scrna/rapids-singlecell
+          commit: 4266edd
+          entrypoint: pca
+        parameters:
+          - solver: covariance-eigh
+            n_components: 50
+            random_seed: 42
+
+      # 28 RANDOMIZED. Still the only arm with a live seed (pc-scanpy's
+      # "randomized" is silently coerced to arpack on sparse input; scrapper's
+      # irlba is bit-identical across seeds at 1.6e-17).
+      #
+      # At n_components 50 halko pins the leading ~10-15 PCs (0.5 deg across
+      # seeds) and the tail is arbitrary (~88 deg at top-50), so this axis asks
+      # how much the unstable tail of a 50-PC embedding moves the clustering.
+      - id: pc-rapids-rand
+        name: "rapids-singlecell PCA, randomized-halko (GPU)"
+        software_environment: "rapids_singlecell"
+        repository:
+          url: https://github.com/omni-scrna/rapids-singlecell
+          commit: 4266edd
+          entrypoint: pca
+        parameters:
+          - solver: randomized-halko
+            n_components: 50
+            random_seed: *pca_seeds
+
+  - id: NNG
+    resources:
+      cores: 4
+    inputs:
+      - pcas_tsv
+    outputs:
+      - id: neighbors_h5
+        path: "{dataset}_neighbors.h5"
+    modules:
+      - id: nn-scanpy
+        name: "scanpy KNN graph"
+        software_environment: "scanpy"
+        repository:
+          url: https://github.com/omni-scrna/scanpy
+          commit: 0ea5225
+          entrypoint: knn
+        parameters:
+          - n_neighbors: 15
+            flavor: "umap"
+            random_seed: 42
+            permutation_seed: *perm_seeds
+
+  - id: CLUST
+    # cores:8 == "serialize" under `--resources cores=8`. Two clusterers share
+    # this stage and one of them is on the GPU; concurrent cugraph leiden jobs
+    # would race for a single card. This costs the scanpy arm its parallelism,
+    # which is the price of having both arms read the SAME graph -- and that
+    # shared graph is the entire point of the comparison.
+    resources:
+      cores: 8
+    inputs:
+      - neighbors_h5
+    outputs:
+      - id: clusters_tsv
+        path: "{dataset}_clusters.tsv"
+    modules:
+      # MAIN ARM: resolution swept, leiden seed pinned at 42. Pinning it is the
+      # whole point -- it isolates embedding x cell order x resolution, and
+      # 143331a1 showed the leiden seed never decides whether the microglial
+      # split fires.
+      - id: cl-scanpy
+        name: "scanpy Leiden clustering, resolution sweep"
+        software_environment: "scanpy"
+        repository:
+          url: https://github.com/omni-scrna/scanpy
+          commit: 7cf3472
+          entrypoint: cluster
+        parameters:
+          - flavor: igraph
+            resolution: *resolutions
+            random_seed: 42
+
+      # CONTROL ARM: leiden seed swept at the optimum resolution only. Enough to
+      # falsify "the leiden seed contributes nothing" without paying for it as a
+      # full axis. If this arm shows spread comparable to the permutation axis,
+      # the main arm's pinning is wrong and the design needs revisiting -- so it
+      # is a guard, not decoration.
+      - id: cl-scanpy-lseed
+        name: "scanpy Leiden clustering, leiden-seed control"
+        software_environment: "scanpy"
+        repository:
+          url: https://github.com/omni-scrna/scanpy
+          commit: 7cf3472
+          entrypoint: cluster
+        parameters:
+          - flavor: igraph
+            resolution: 0.5
+            random_seed: *leiden_seeds
+
+      # SECOND CLUSTERER, on the identical graph. cugraph leiden against igraph
+      # leiden, same neighbors_h5, so any difference is the implementation and
+      # not the graph. This is what makes the microglial bistability
+      # attributable: if cugraph splits the same label on the same graphs, the
+      # failure is in the graph; if it does not, it is in igraph's optimiser.
+      #
+      # Same repo and commit as the PCA stage (4266edd carries the `cluster`
+      # entrypoint), so one module version covers both GPU stages.
+      #
+      # Do NOT try to harmonize n_iterations across the two: igraph counts
+      # Leiden passes and cugraph counts hierarchy levels, and a shared value
+      # of 2 gave cugraph 962 clusters last time this was attempted. Neither
+      # arm sets it here.
+      #
+      # Resolution is NOT comparable one-to-one between them -- on pbmc,
+      # res 1.0 gave igraph k=29.6 and cugraph k=27.6. Compare the two arms at
+      # matched k, not at matched resolution.
+      - id: cl-rapids
+        name: "rapids-singlecell Leiden (GPU), resolution sweep"
+        software_environment: "rapids_singlecell"
+        repository:
+          url: https://github.com/omni-scrna/rapids-singlecell
+          commit: 4266edd
+          entrypoint: cluster
+        parameters:
+          - method: rapids-leiden
+            resolution: *resolutions
+            random_seed: 42
+
+      # THE SEED-INERTNESS TEST, and the reason this arm exists at 5 levels.
+      #
+      # cluster_graph.py requires --random_seed for rapids-leiden and hands it
+      # to rsc.tl.leiden(random_state=...), so the module is correct at its own
+      # boundary. Whether cuGraph honours it is another matter: cugraph's leiden
+      # has historically not exposed a usable seed, and if it silently ignores
+      # random_state then these 5 nodes are 5 different hashes over byte-
+      # identical output. That is exactly the observation worth making -- a
+      # benchmark that sweeps an inert parameter reports false stability.
+      #
+      # Deliberately the same 5 levels and the same resolution as
+      # cl-scanpy-lseed, so the two are read side by side: igraph's spread is
+      # the yardstick against which cugraph's zero (or non-zero) means anything.
+      # First thing to check on completion is whether the 5 clusters_tsv files
+      # are identical.
+      - id: cl-rapids-lseed
+        name: "rapids-singlecell Leiden (GPU), seed control"
+        software_environment: "rapids_singlecell"
+        repository:
+          url: https://github.com/omni-scrna/rapids-singlecell
+          commit: 4266edd
+          entrypoint: cluster
+        parameters:
+          - method: rapids-leiden
+            resolution: 0.5
+            random_seed: *leiden_seeds
+
+  - id: CLUST-M
+    inputs:
+      - clusters_tsv
+      - rawdata_clusters_truth
+    outputs:
+      - id: cluster_metrics
+        path: "{dataset}_cluster_metrics.json"
+    modules:
+      - id: cl-metrics-r
+        name: "Partition metrics in R"
+        software_environment: "metrics"
+        repository:
+          url: https://github.com/omni-scrna/metrics
+          commit: 7d4e871
+          entrypoint: cluster-r
+
+# ---------------------------------------------------------------------------
+# Run-to-run stability is NOT computed here, and that is deliberate.
+#
+# Every metric in CLUST-M is node-local: one clustering, one truth, one row.
+# Partition-vs-partition agreement is an aggregation over sibling nodes, which
+# the node contract cannot express -- so it stays a post-processing step over
+# the output tree (metrics/cluster/pairwise_stability.py, which already emits
+# both ARI and NVI per varied factor and correctly refuses to bucket runs that
+# differ in resolution).
+#
+# What this plan adds is the ANCHORED form, which does fit one row: with
+# permutation_seed 0 in the sweep, each run has a natural partner -- the seed-0
+# run at the same embedding and resolution -- so stability collapses from an
+# N^2 mean over pairs to a single number per run, ARI(run, anchor). That is the
+# form a benchmark can report and a reader can rank. Computing it still needs
+# two clusterings at once, so it belongs in the post-processing step until the
+# CLUST-M contract can take a second clusters_tsv.
+# ---------------------------------------------------------------------------
