@@ -160,13 +160,13 @@ stages:
     modules:
       # THE axis. permutation_seed shuffles cell order before the graph is built;
       # 0 is the identity, i.e. the control arm. random_seed is frozen so the ANN
-      # seed contributes nothing. Branch ref, so this needs --unpinned.
+      # seed contributes nothing.
       - id: nn-scanpy
         name: "scanpy KNN graph"
         software_environment: "scanpy"
         repository:
           url: https://github.com/omni-scrna/scanpy
-          commit: knn-permutation
+          commit: 0ea5225fe466ba695c916596f50cc94eebbaaa02   # tip of knn-permutation
           entrypoint: knn
         parameters:
           # THE grid: 20 x 20 = 400 graphs. Crossed, not two marginal arms,
@@ -248,7 +248,6 @@ stages:
       # it does mini-batch k-means over the PC matrix plus a consensus over the
       # microclusters; so the permutation has to enter here, at the same
       # pcas_tsv the NNG arm reads.
-      # Branch ref, so this needs --unpinned.
       #
       # k is frozen at 20 to sit next to cl-scanpy's resolution 1.0 (k19), since
       # sc3s takes k as input and its k never moves.
@@ -257,7 +256,7 @@ stages:
         software_environment: "sc3s"
         repository:
           url: https://github.com/omni-scrna/sc3s
-          commit: main
+          commit: e5d4053f3288c5f621f43adb2ec220ed5255e8d6   # tip of main
           entrypoint: cluster
         parameters:
           - n_clusters: 20
