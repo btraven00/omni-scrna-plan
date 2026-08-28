@@ -1,0 +1,294 @@
+name: split-stages-plan
+id: split_stages_plan
+description: "stability factorial: PCA seed x cell order x leiden seed, fully crossed"
+benchmarker: "Mark Robinson <mark.robinson@mls.uzh.ch>"
+
+version: "0.1.0"
+api_version: "0.4.0"
+
+software_backend: "conda"
+
+# FACTORIAL. Three seed axes crossed:
+#   PCA   random_seed       -> the randomized range-finder
+#   NNG   permutation_seed  -> cell storage order
+#   CLUST random_seed       -> leiden's own restarts
+#
+# PCA is 1 exact + n randomized, both rapids, so solver is the only difference
+# between the branches. Do NOT substitute another module's "randomized": two of
+# the three advertised seed axes in this benchmark do not exist.
+#   pc-scanpy  --solver randomized  -> silently coerced to arpack on sparse
+#                                      input; the warning goes to stderr and
+#                                      never reaches results (its own docstring
+#                                      documents this, measured 2026-08-15)
+#   pc-scrapper --solver irlba      -> bit-identical across seeds (1.6e-17);
+#                                      the seed never reaches the start vector
+#   pc-rapids  randomized-halko     -> genuinely seed-sensitive
+#
+# On the PCA factor: at n_components 50 halko pins the leading ~10-15 PCs
+# (0.5 deg across seeds) and the tail is arbitrary (~88 deg at top-50), those
+# eigenvalues being near-degenerate. That tail does NOT propagate: across a
+# resolution sweep, exact and halko differ by |dARI| ~ 0.005 at every
+# resolution -- the same size as the order and leiden terms, not larger. The
+# unstable directions carry no cluster structure, so n_components 50 is fine.
+#
+# Scale context, so none of these terms gets over-read: resolution moves ARI
+# over 0.50-0.73 (range 0.23) while every seed factor moves it by 0.003-0.008.
+# The resolution choice is ~30x larger than anything measured here.
+#
+# Operational notes:
+#
+# * NNG `random_seed` is FROZEN at 42 and this is not free here. Measured on a
+#   3x3 grid, cell order vs ANN seed: on tm-facs-marrow (5,015 cells) the ANN
+#   seed is inert (partition ARI 1.0000) while cell order gives 0.9251; on
+#   tm-facs (44,104 cells) they are indistinguishable (0.9762 vs 0.9794). So
+#   at THIS dataset's scale a fourth variance source of the same size as cell
+#   order is being held constant. 
+
+software_environments:
+  scanpy:
+    name: scanpy multi-module
+    conda: ../envs/scanpy.yml
+  py_conda:
+    name: Python conda env
+    conda: ../envs/py.yml
+  scrapper:
+    name: scrapper multi-module
+    conda: ../envs/scrapper.yml
+  metrics:
+    name: metrics env
+    conda: ../envs/metrics.yaml
+  omni_data:
+    name: omni-data fixture loader
+    conda: ../envs/omni-data-pinned.yml
+  rapids_singlecell:
+    name: rapids-singlecell (GPU)
+    conda: ../envs/rapids.yml
+  pgs:
+    name: PyGenStability (Markov Stability)
+    conda: ../envs/pgs.yml
+
+# n = 10 on every seed axis, from ONE anchor so the three factors cannot drift
+# out of balance. Equal n matters here: the deliverable is one variance
+# component per factor, and unequal n makes them incomparable at exactly the
+# point the comparison is made. The exact PCA arm keeps a scalar seed on
+# purpose -- it is 1 exact + n randomized, not an eleventh level.
+seeds: &seeds [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+
+stages:
+  - id: DATA
+    outputs:
+      - id: rawdata_h5ad
+        path: "{dataset}.h5ad"
+      - id: rawdata_clusters_truth
+        path: "{dataset}.clusters_truth.tsv"
+      - id: rawdata_clusters_truth_num
+        path: "{dataset}.clusters_truth_num.txt"
+      - id: properties_info
+        path: "{dataset}_properties.yaml"
+    modules:
+      # omni-data directory mode serves the whole directory, which is exactly
+      # the four-file DATA contract (h5ad + clusters_truth.tsv +
+      # clusters_truth_num.txt + _properties.yaml). One directory per dataset
+      # id: point this at a parent and every dataset under it gets fetched.
+      #
+      # The module id IS {dataset} under api 0.4.0 -- it is passed as --name and
+      # the outputs are "{dataset}.h5ad" -- so `tm-facs` must match the file
+      # stems and the directory name.
+      #
+      # file:// is not reproducible: it resolves against whatever is on that
+      # machine. Swap to https://omnibenchmark.mls.uzh.ch/datasets/tm-facs/
+      # (keeping uri_type) before any result is quoted; the directory ships a
+      # .sha256 manifest for checking:
+      - id: tm-facs
+        name: "Tabula Muris FACS via omni-data (on-disk directory)"
+        software_environment: omni_data
+        repository:
+          url: https://github.com/btraven00/omni-data
+          commit: 80611e83d13c8bd0d15fbc033c6a5e1a7900a0b8
+        parameters:
+          - uri: file:///home/ben/tm_omnidata/tm-facs/
+            uri_type: directory
+
+  - id: FILT
+    inputs:
+      - rawdata_h5ad
+      - properties_info
+    outputs:
+      - id: filtered_cellids
+        path: "{dataset}_cellids.txt.gz"
+    modules:
+      - id: fi-scrapper
+        name: "scrapper-style filtering"
+        software_environment: "scrapper"
+        repository:
+          url: https://github.com/omni-scrna/scrapper
+          commit: 18843a7
+          entrypoint: filter
+
+  - id: NORM
+    inputs:
+      - rawdata_h5ad
+      - filtered_cellids
+    outputs:
+      - id: normalized_h5
+        path: "{dataset}_normalized.h5"
+    modules:
+      - id: nr-scanpy
+        name: "Python-based scRNA-seq normalization methods"
+        software_environment: "py_conda"
+        repository:
+          url: https://github.com/omni-scrna/scanpy
+          commit: 53eb292
+          entrypoint: normalize
+        parameters:
+          - flavor: ["log1pCP10k"]
+
+  - id: FEAT
+    inputs:
+      - rawdata_h5ad
+      - normalized_h5
+      - filtered_cellids
+      - properties_info
+    outputs:
+      - id: normalized_selected_h5
+        path: "{dataset}_normalized_selected.h5"
+    modules:
+      - id: fe-scanpy
+        name: "scanpy-based gene selection"
+        software_environment: "scanpy"
+        repository:
+          url: https://github.com/omni-scrna/scanpy
+          commit: 53eb292
+          entrypoint: feat-select
+        parameters:
+          - flavor: ["scanpy_seurat"]
+            number_selected: 2000
+
+  - id: PCA
+    # The schema key is `gpu`, but ob emits it as the snakemake resource
+    # `nvidia_gpu`. The names differ, so the flag is:
+    #
+    #     --resources nvidia_gpu=1
+    resources:
+      cores: 2
+      gpu: 1
+    inputs:
+      - normalized_selected_h5
+    outputs:
+      - id: pcas_tsv
+        path: "{dataset}_pcas.tsv"
+      - id: loadings_tsv
+        path: "{dataset}_loadings.tsv"
+    modules:
+      # arpack: exact and deterministic, so PCA adds no variance of its own.
+      # 1 EXACT, same module and same GPU as the randomized arm, so the only
+      # thing that differs between the two branches is the solver. Its branch
+      # carries zero PCA variance and calibrates "no PCA effect" inside the
+      # design itself.
+      #
+      # Verified rather than assumed -- it is a GPU reduction, so it is NOT
+      # bit-identical across seeds, but the subspace is constant to 1.5e-3 deg
+      # (halko moves 88 deg over the same seeds). Cross-checked against an
+      # independent CPU exact solver, scrapper `exact`: 0.014 deg apart.
+      - id: pc-rapids-exact
+        name: "rapids-singlecell PCA, covariance-eigh (GPU)"
+        software_environment: "rapids_singlecell"
+        repository:
+          url: https://github.com/omni-scrna/rapids-singlecell
+          commit: 4266edd
+          entrypoint: pca
+        parameters:
+          - solver: covariance-eigh
+            n_components: 50
+            random_seed: 42
+
+      # n RANDOMIZED. This is the ONLY arm in the benchmark with a live seed:
+      #   pc-scanpy  --solver randomized -> silently coerced to arpack (sparse)
+      #   pc-scrapper --solver irlba     -> bit-identical across seeds (1.6e-17)
+      #   pc-rapids  randomized-halko    -> genuinely seed-sensitive
+      # Measured across seeds, order-free subspace angles: top-10 PCs 0.5 deg,
+      # top-20 14-19 deg, top-50 ~88 deg. Halko nails the leading PCs and the
+      # trailing ones are arbitrary -- so this factor is really asking how much
+      # the unstable tail of a 50-PC embedding moves the clustering.
+      - id: pc-rapids-rand
+        name: "rapids-singlecell PCA, randomized-halko (GPU)"
+        software_environment: "rapids_singlecell"
+        repository:
+          # origin/adapt-nng-clust-spec. Carries the to_host() fix: upstream
+          # np.asarray()es a cupy array and dies on every solver that returns
+          # device memory, which is why only covariance-eigh ever worked.
+          url: https://github.com/omni-scrna/rapids-singlecell
+          commit: 4266edd
+          entrypoint: pca
+        parameters:
+          - solver: randomized-halko
+            n_components: 50
+            random_seed: *seeds
+
+  - id: NNG
+    resources:
+      cores: 4
+    inputs:
+      - pcas_tsv
+    outputs:
+      - id: neighbors_h5
+        path: "{dataset}_neighbors.h5"
+    modules:
+      # THE axis. permutation_seed shuffles cell order before the graph is built;
+      # 0 is the identity, i.e. the control arm. random_seed is frozen so the ANN
+      # seed contributes nothing. Local checkout until the branch is pushed --
+      # needs --dirty.
+      - id: nn-scanpy
+        name: "scanpy KNN graph"
+        software_environment: "scanpy"
+        repository:
+          # origin/knn-permutation. knn.py here is byte-identical to the
+          # 28746ef this used to pin from a local checkout; both branches carry
+          # the same --permutation_seed work under different commit messages.
+          url: https://github.com/omni-scrna/scanpy
+          commit: 0ea5225
+          entrypoint: knn
+        parameters:
+          - n_neighbors: 15
+            flavor: "umap"
+            random_seed: 42
+            permutation_seed: *seeds
+
+  - id: CLUST
+    resources:
+      cores: 2
+    inputs:
+      - neighbors_h5
+    outputs:
+      - id: clusters_tsv
+        path: "{dataset}_clusters.tsv"
+    modules:
+      - id: cl-scanpy
+        name: "scanpy Leiden clustering"
+        software_environment: "scanpy"
+        repository:
+          url: https://github.com/omni-scrna/scanpy
+          commit: 7cf3472
+          entrypoint: cluster
+        parameters:
+          - flavor: igraph
+            # 0.5, not 1.0: measured ARI optimum on BOTH tm-facs (0.732 at
+            # 0.5 vs 0.672 at 1.0) and tm-facs-marrow (0.685 vs 0.655).
+            resolution: 0.5
+            random_seed: *seeds
+  - id: CLUST-M
+    inputs:
+      - clusters_tsv
+      - rawdata_clusters_truth
+    outputs:
+      - id: cluster_metrics
+        path: "{dataset}_cluster_metrics.json"
+    modules:
+      - id: cl-metrics-r
+        name: "Partition metrics in R"
+        software_environment: "metrics"
+        repository:
+          # Emits ARI, AMI, FM, VM, EH, EC.
+          url: https://github.com/omni-scrna/metrics
+          commit: 7d4e871
+          entrypoint: cluster-r
