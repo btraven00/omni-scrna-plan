@@ -53,11 +53,15 @@ software_environments:
   onlinepca_jl:
     name: OnlinePCA.jl module env (julia + HDF5)
     conda: envs/onlinepca-jl.yml
-  rapids_singlecell:
-    name: rapids-singlecell GPU env (cu13 wheels; needs an NVIDIA GPU + CUDA 13 driver)
-    conda: envs/rapids-singlecell.yml
+  # osx-arm64: CUDA wheels, linux-64 only -- see pc-rapids in the PCA stage.
+  # rapids_singlecell:
+    # name: rapids-singlecell GPU env (cu13 wheels; needs an NVIDIA GPU + CUDA 13 driver)
+    # conda: envs/rapids-singlecell.yml
   rcppml:
     name: RcppML env (r-rcppml 1.0.0 from the almost-conductor channel; ships RcppML_gpu.so)
+    # osx-arm64: almost-conductor only publishes the linux-64 (CUDA) build.
+    # Build the CPU-only one on the mac from scrna-bench/packages/recipes/
+    # r-rcppml and upload it, or pc-rcppml below will not solve.
     conda: envs/rcppml.yml
 
 
@@ -201,24 +205,27 @@ stages:
           - solver: [exact, irlba, random]
             n_components: 50
             random_seed: *seeds
-      - id: pc-rapids
-        name: "rapids-singlecell PCA (GPU)"
-        software_environment: "rapids_singlecell"
-        # NEEDS omnibenchmark >0.6 (capability gating) 
-        # run: --with-capability gpu
-        # comment manually to avoid a CUDA error.
-        requires_capabilities: [gpu]
-        repository:
-          url: https://github.com/omni-scrna/rapids-singlecell
-          commit: testing
-          entrypoint: pca
-        parameters:
-          # sparse-only solvers: normalized_selected_h5 loads as CSR, and the
-          # module raises rather than let rsc silently swap in another solver.
-          # full/jacobi are dense-only, so they're out.
-          - solver: [covariance-eigh, lanczos, randomized-halko]
-            n_components: 50
-            random_seed: *seeds
+      # osx-arm64: rapids-singlecell-cu13 is CUDA linux-64 wheels only, and
+      # capability gating needs ob >0.6, so this arm is commented rather than
+      # gated. Uncomment on a GPU box.
+      # - id: pc-rapids
+        # name: "rapids-singlecell PCA (GPU)"
+        # software_environment: "rapids_singlecell"
+        # # NEEDS omnibenchmark >0.6 (capability gating) 
+        # # run: --with-capability gpu
+        # # comment manually to avoid a CUDA error.
+        # requires_capabilities: [gpu]
+        # repository:
+          # url: https://github.com/omni-scrna/rapids-singlecell
+          # commit: testing
+          # entrypoint: pca
+        # parameters:
+          # # sparse-only solvers: normalized_selected_h5 loads as CSR, and the
+          # # module raises rather than let rsc silently swap in another solver.
+          # # full/jacobi are dense-only, so they're out.
+          # - solver: [covariance-eigh, lanczos, randomized-halko]
+            # n_components: 50
+            # random_seed: *seeds
       - id: pc-rcppml
         name: "RcppML truncated SVD"
         software_environment: "rcppml"
