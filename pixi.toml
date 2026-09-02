@@ -26,7 +26,7 @@ conda = "*"
 go-yq = "*"
 
 [feature.plan.pypi-dependencies]
-omnibenchmark = { git = "https://github.com/omnibenchmark/omnibenchmark.git", branch = "main" }
+omnibenchmark = { git = "https://github.com/omnibenchmark/omnibenchmark.git", rev = "1fddceb" }
 
 [feature.plan.tasks]
 validate-plan = "ob validate plan benchmark_conda.yaml"
