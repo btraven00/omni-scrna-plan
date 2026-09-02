@@ -105,6 +105,21 @@ stages:
           - uri: https://omnibenchmark.mls.uzh.ch/datasets/be1-fixture/
             uri_type: directory
 
+      # The PCA collection's dataset, same module and pin as benchmark_conda.yaml.
+      # Downloaded by the R module rather than fetched as a fixture, so unlike
+      # the be1/tenx paths it carries no machine-local URI.
+      - id: d-pca
+        name: "R-based dataset downloads (PCA collection)"
+        software_environment: r_conda
+        repository:
+          url: https://github.com/omni-scrna/1-data
+          commit: 14c5ddd
+        parameters:
+          - dataset_name: "sc-mix"
+            batch_var: null
+            labels_var: cell_line
+            sample_var: null
+
       # Commented out for e2e runs on the fixture: full pbmc is 157k cells and
       # every downstream stage pays for it (PCA alone peaks ~13GB per job).
       # Uncomment for a real benchmark run.
