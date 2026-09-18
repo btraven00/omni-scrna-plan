@@ -38,6 +38,9 @@ software_environments:
   rapids_singlecell:
     name: rapids-singlecell GPU env (needs an NVIDIA GPU)
     conda: ../envs/rapids-singlecell.yml
+  seurat:
+    name: Seurat multi-module
+    conda: ../envs/seurat.yml
 
 stages:
   # be1-subset: the dummy. Small enough that GRAPH-M is affordable here, which
@@ -218,6 +221,22 @@ stages:
             # it. be1-subset already flattens by 0.05; it just rides along.
             resolution: [0.01, 0.025, 0.05, 0.1, 0.2, 0.3, 0.5, 1.0]
             random_seed: 42
+          # Stability sweep: two resolutions, many seeds. Expanding the seed
+          # in the plan rather than looping inside the module costs ~8x -- each
+          # job re-pays ~2.2s of interpreter start, and its CLUST-M scoring
+          # re-pays 7.4s of loading R's poem to perform 0.028s of arithmetic --
+          # and buys back every line of module code: --random_seed already
+          # exists on all four clusterers, so one list covers scanpy, rapids,
+          # scrapper and seurat with nothing added, and snakemake parallelises
+          # it. The internalised --repeats alternative needed a new entrypoint
+          # per clusterer, in two languages.
+          #
+          # Only CLUST's seed moves: the graph above is fixed, so this isolates
+          # Leiden's own stochasticity, not kNN or PCA variation (those are
+          # separate axes -- permutation_seed on NNG).
+          - flavor: igraph
+            resolution: [0.05, 1.0]
+            random_seed: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
       # GPU arm. requires_capabilities gates it, so the slice still runs on a
       # box without a GPU -- just without this arm.
       - id: cl-rapids
@@ -240,6 +259,36 @@ stages:
             # it. be1-subset already flattens by 0.05; it just rides along.
             resolution: [0.01, 0.025, 0.05, 0.1, 0.2, 0.3, 0.5, 1.0]
             random_seed: 42
+          - method: rapids-leiden
+            resolution: [0.05, 1.0]
+            random_seed: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+
+      # Two more Leidens, in R, on the same seed sweep. scanpy and rapids agree
+      # to <0.02 ARI everywhere, so they cannot say whether instability is
+      # Leiden or the library; a different implementation can. One flavor each,
+      # matched as closely as the modules allow.
+      - id: cl-scrapper
+        name: "scrapper clustering"
+        software_environment: "scrapper"
+        repository:
+          url: https://github.com/omni-scrna/scrapper
+          commit: 8a1cfd8
+          entrypoint: cluster
+        parameters:
+          - flavor: leiden_modularity
+            resolution: [0.05, 1.0]
+            walktrap_steps: 4
+            random_seed: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+      - id: cl-seurat
+        name: "Seurat clustering"
+        software_environment: "seurat"
+        repository:
+          url: https://github.com/omni-scrna/seurat
+          commit: 537d178
+          entrypoint: cluster
+        parameters:
+          - resolution: [0.05, 1.0]
+            random_seed: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
 
   # The bounds. Same output id as CLUST, so they land in CLUST-M beside the arms.
   - id: CLUSTBOUND
@@ -259,7 +308,7 @@ stages:
         repository:
           # Local checkout until bounds/ is pushed; needs --dirty.
           url: /home/b/lab/omni-scrna/split-stages-plan-modules/metrics
-          commit: ffeb4c0
+          commit: bc998fb
           entrypoint: bounds-py
         parameters:
           - bound: chance
@@ -273,7 +322,7 @@ stages:
         repository:
           # Local checkout until bounds/ is pushed; needs --dirty.
           url: /home/b/lab/omni-scrna/split-stages-plan-modules/metrics
-          commit: ffeb4c0
+          commit: bc998fb
           entrypoint: bounds-py
         parameters:
           - bound: oracle
@@ -296,7 +345,7 @@ stages:
         software_environment: "metrics"
         repository:
           url: /home/b/lab/omni-scrna/split-stages-plan-modules/metrics
-          commit: ffeb4c0
+          commit: bc998fb
           entrypoint: graph-r
 
   # poem, on every partition: the two CLUST arms and the two bounds, one call.
@@ -316,5 +365,5 @@ stages:
           # and the bounds land in bounds/, so one branch (oracles) carries the
           # whole change and it can be reviewed in one place.
           url: /home/b/lab/omni-scrna/split-stages-plan-modules/metrics
-          commit: ffeb4c0
+          commit: bc998fb
           entrypoint: cluster-r
