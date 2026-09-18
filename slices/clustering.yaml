@@ -42,6 +42,9 @@ software_environments:
     name: Seurat multi-module
     conda: ../envs/seurat.yml
 
+seeds: &seeds [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+seed0: &seed0 1
+
 stages:
   # be1-subset: the dummy. Small enough that GRAPH-M is affordable here, which
   # it is not at facs/pbmc scale (~55min, ~2GB per job). This slice proves the
@@ -220,7 +223,7 @@ stages:
             # gap is structural (batch in the graph) and no resolution fixes
             # it. be1-subset already flattens by 0.05; it just rides along.
             resolution: [0.01, 0.025, 0.05, 0.1, 0.2, 0.3, 0.5, 1.0]
-            random_seed: 42
+            random_seed: *seed0
           # Stability sweep: two resolutions, many seeds. Expanding the seed
           # in the plan rather than looping inside the module costs ~8x -- each
           # job re-pays ~2.2s of interpreter start, and its CLUST-M scoring
@@ -236,7 +239,7 @@ stages:
           # separate axes -- permutation_seed on NNG).
           - flavor: igraph
             resolution: [0.05, 1.0]
-            random_seed: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+            random_seed: *seeds
       # GPU arm. requires_capabilities gates it, so the slice still runs on a
       # box without a GPU -- just without this arm.
       - id: cl-rapids
@@ -258,10 +261,10 @@ stages:
             # gap is structural (batch in the graph) and no resolution fixes
             # it. be1-subset already flattens by 0.05; it just rides along.
             resolution: [0.01, 0.025, 0.05, 0.1, 0.2, 0.3, 0.5, 1.0]
-            random_seed: 42
+            random_seed: *seed0
           - method: rapids-leiden
             resolution: [0.05, 1.0]
-            random_seed: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+            random_seed: *seeds
 
       # Two more Leidens, in R, on the same seed sweep. scanpy and rapids agree
       # to <0.02 ARI everywhere, so they cannot say whether instability is
@@ -278,7 +281,7 @@ stages:
           - flavor: leiden_modularity
             resolution: [0.05, 1.0]
             walktrap_steps: 4
-            random_seed: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+            random_seed: *seeds
       - id: cl-seurat
         name: "Seurat clustering"
         software_environment: "seurat"
@@ -287,8 +290,10 @@ stages:
           commit: 537d178
           entrypoint: cluster
         parameters:
-          - resolution: [0.05, 1.0]
-            random_seed: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+          # --flavor is required by this module; leiden to match the others.
+          - flavor: leiden
+            resolution: [0.05, 1.0]
+            random_seed: *seeds
 
   # The bounds. Same output id as CLUST, so they land in CLUST-M beside the arms.
   - id: CLUSTBOUND
