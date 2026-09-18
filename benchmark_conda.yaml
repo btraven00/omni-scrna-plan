@@ -418,6 +418,64 @@ stages:
           commit: 257c952
           entrypoint: cluster-r
 
+  # Floor and ceiling for what any clustering of this embedding could recover.
+  # Emits a partition under CLUST's own `clusters_tsv` id -- it scores nothing
+  # itself, so CLUST-M picks it up and poem scores a bound with the exact call
+  # it makes on a real arm. That is the point: a bound and an arm are the same
+  # number by construction, not because two implementations were checked
+  # against each other (sklearn and poem normalise AMI differently).
+  #
+  # Needs an ob with shared-output-id fan-in (gather-lean-3) -- CLUST and
+  # CLUSTBOUND both produce clusters_tsv, and on main CLUST-M silently takes
+  # only one producer. pixi.toml already pins that branch.
+  #
+  # Reads only (embedding_tsv, truth), never a CLUST arm, so one pair brackets
+  # every clustering downstream of an embedding -- and it fans in over PCA,
+  # ISOMAP and CNTFCT for free, since all three emit embedding_tsv.
+  - id: CLUSTBOUND
+    inputs:
+      - embedding_tsv
+      - rawdata_clusters_truth
+    outputs:
+      - id: clusters_tsv
+        path: "{dataset}_clusters.tsv"
+    modules:
+      # Chance floor: a uniform random partition at k. ARI/AMI are chance-
+      # corrected so this scores ~0; the spread is the number a weak arm has to
+      # clear, and it is not negligible when k is large relative to n. One run
+      # is one draw -- the seed sweep is what makes the distribution, the same
+      # way permutation_seed is swept on NNG.
+      - id: cb-chance
+        name: "Chance floor (label permutation)"
+        software_environment: "metrics"
+        repository:
+          url: https://github.com/omni-scrna/metrics
+          commit: main   # repin once bounds-py lands
+          entrypoint: bounds-py
+        parameters:
+          - bound: chance
+            n_clusters: [0, 10, 20]   # 0 = the truth's own k
+            random_seed: [1, 2, 3, 4, 5]
+      # Supervised ceiling. Not a strict upper bound -- a clusterer could in
+      # principle beat a given classifier -- but if the oracle is also low, the
+      # embedding does not carry the labels and no CLUST arm was ever going to
+      # score well. Two classifiers because the ceiling is only as good as the
+      # classifier: take the max of the arms. Boosting is deliberately absent --
+      # on tm-facs-marrow it returns ARI 0.07 where these return 0.88, which
+      # would read as a dead embedding. It stays behind --classifier hgb.
+      - id: cb-oracle
+        name: "Supervised ceiling"
+        software_environment: "metrics"
+        repository:
+          url: https://github.com/omni-scrna/metrics
+          commit: main   # repin once bounds-py lands
+          entrypoint: bounds-py
+        parameters:
+          - bound: oracle
+            classifier: [logreg, knn]
+            n_splits: 5
+            random_seed: 42
+
   - id: INTG8
     inputs:
       - embedding_tsv
