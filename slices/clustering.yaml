@@ -23,6 +23,9 @@ software_environments:
   r_conda:
     name: R conda env
     conda: ../envs/r.yml
+  omni_data:
+    name: omni-data fixture loader
+    conda: ../envs/omni-data-pinned.yml
   py_conda:
     name: Python conda env
     conda: ../envs/py.yml
@@ -42,7 +45,14 @@ software_environments:
     name: Seurat multi-module
     conda: ../envs/seurat.yml
 
-seeds: &seeds [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+# Clustering seeds: nested inside each embedding, so they buy precision
+# within an embedding, not independent draws.
+seeds: &seeds [1, 2, 3, 4, 5]
+# PCA seeds: the OUTERMOST randomisation unit, and therefore what sets the
+# effective sample size for a bootstrap CI on epsilon. At 3 it was n_eff~3
+# and no dominance claim could survive inference.
+pca_seeds: &pca_seeds [1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+                       11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
 seed0: &seed0 1
 
 stages:
@@ -60,21 +70,19 @@ stages:
       - id: properties_info
         path: "{dataset}_properties.yaml"
     modules:
-      - id: d-feat-sel
-        name: "R-based dataset downloads (feature selection collection)"
-        software_environment: r_conda
+      # be1-subset dropped: the screen put it at 3.7% headroom, i.e. Leiden is
+      # already at its oracle and it cannot discriminate methods however much it
+      # is resampled. tm-droplet replaces it at 23.9% headroom (55k cells, 55
+      # labels, ceiling 0.968, best probe 0.737).
+      - id: tm-droplet
+        name: "Tabula Muris droplet (55k cells, 55 labels)"
+        software_environment: omni_data
         repository:
-          url: https://github.com/omni-scrna/1-data
-          commit: 0346bd4
+          url: https://github.com/btraven00/omni-data
+          commit: 80611e83d13c8bd0d15fbc033c6a5e1a7900a0b8
         parameters:
-          - dataset_name: "be1-subset"
-            batch_var: Sample
-            labels_var: Sample
-            sample_var: Sample
-      # Medium rung. be1-subset is 8 cell LINES and its labels_var is Sample,
-      # which makes the ceiling easy to reach -- pancreas carries real cell
-      # types (labels_var: clusters.truth) with batch as a separate axis, so
-      # it is where the bracket has room to say something.
+          - uri: file:///home/b/phd/data/tm_omnidata/tm-droplet/
+            uri_type: directory
       - id: d-integration
         name: "R-based dataset downloads (integration collection)"
         software_environment: r_conda
@@ -87,11 +95,6 @@ stages:
             labels_var: clusters.truth
             sample_var: study
 
-  # ---------------------------------------------------------------------------
-  # FILT / NORM / FEAT / PCA: scaffolding, frozen. One module, one parameter set.
-  # Their job is to hand the graph stages an embedding; nothing here is under
-  # test, so any variance they contribute is noise in the comparison below.
-  # ---------------------------------------------------------------------------
   - id: FILT
     inputs:
       - rawdata_h5ad
@@ -150,7 +153,10 @@ stages:
           commit: 2a56c14
           entrypoint: feat-select
         parameters:
-          - flavor: ["pearson_residuals"]
+          # scanpy_seurat, not pearson_residuals: the latter measured 1.9GB at
+          # 4.5k cells and 17.2GB at 12.1k (~n^2.2, sc.experimental densifies),
+          # which extrapolates to ~300GB at tm-droplet's 55k on a 61GB box.
+          - flavor: ["scanpy_seurat"]
             number_selected: 2000
 
   - id: PCA
@@ -172,10 +178,39 @@ stages:
           commit: b41bf43
           entrypoint: pca
         parameters:
+          # Deterministic reference. arpack has NO seed axis, so one draw is all
+          # there is -- sweeping random_seed here would produce byte-identical
+          # embeddings and a null result that looks like "PCA seed does not
+          # matter".
           - solver: arpack
             dense: "false"
             n_components: 50
-            random_seed: 42
+            random_seed: *seed0
+          # The real PCA seed axis. scanpy coerces solver=randomized to arpack on
+          # SPARSE input (pca.py:21 "silently ignored", measured byte-identical),
+          # so the seed only bites with dense: true, where seed 42 vs 43 moved the
+          # embedding by 1.7e-3. Dense here is 55k x 2000 x 8B ~= 0.9GB, affordable.
+          - solver: randomized
+            dense: "true"
+            n_components: 50
+            random_seed: *pca_seeds
+      # Second exact arm, different library. covariance-eigh is a deterministic
+      # gram+eigh, so it has no seed axis by construction -- that is the point:
+      # it isolates how much of the pipeline spread survives when the embedding
+      # is fixed, and whether two independent exact solvers land in the same
+      # place (scanpy's own notes put covariance_eigh within 8e-13 of arpack).
+      - id: pc-rapids
+        name: "rapids-singlecell PCA (GPU, exact)"
+        software_environment: rapids_singlecell
+        requires_capabilities: [gpu]
+        repository:
+          url: https://github.com/omni-scrna/rapids-singlecell
+          commit: b28deb6756ad4ef7df0842422729547e1762aebb
+          entrypoint: pca
+        parameters:
+          - solver: covariance-eigh
+            n_components: 50
+            random_seed: *seed0
 
   # ---------------------------------------------------------------------------
   # The comparison. CLUST and CLUSTBOUND both emit clusters_tsv; CLUST-M scores
@@ -215,15 +250,6 @@ stages:
           commit: b41bf43
           entrypoint: cluster
         parameters:
-          - flavor: igraph
-            # Sub-0.05 extension: pancreas was still climbing at 0.05
-            # (ARI 0.56, k_found 14-15 against a truth of 8), so the turnover
-            # is below the grid. These points are where k_found finally
-            # reaches 8 -- if ARI still falls short of the oracle there, the
-            # gap is structural (batch in the graph) and no resolution fixes
-            # it. be1-subset already flattens by 0.05; it just rides along.
-            resolution: [0.01, 0.025, 0.05, 0.1, 0.2, 0.3, 0.5, 1.0]
-            random_seed: *seed0
           # Stability sweep: two resolutions, many seeds. Expanding the seed
           # in the plan rather than looping inside the module costs ~8x -- each
           # job re-pays ~2.2s of interpreter start, and its CLUST-M scoring
@@ -238,7 +264,7 @@ stages:
           # Leiden's own stochasticity, not kNN or PCA variation (those are
           # separate axes -- permutation_seed on NNG).
           - flavor: igraph
-            resolution: [0.05, 1.0]
+            resolution: [0.05, 0.2, 1.0]
             random_seed: *seeds
       # GPU arm. requires_capabilities gates it, so the slice still runs on a
       # box without a GPU -- just without this arm.
@@ -254,16 +280,7 @@ stages:
           entrypoint: cluster
         parameters:
           - method: rapids-leiden
-            # Sub-0.05 extension: pancreas was still climbing at 0.05
-            # (ARI 0.56, k_found 14-15 against a truth of 8), so the turnover
-            # is below the grid. These points are where k_found finally
-            # reaches 8 -- if ARI still falls short of the oracle there, the
-            # gap is structural (batch in the graph) and no resolution fixes
-            # it. be1-subset already flattens by 0.05; it just rides along.
-            resolution: [0.01, 0.025, 0.05, 0.1, 0.2, 0.3, 0.5, 1.0]
-            random_seed: *seed0
-          - method: rapids-leiden
-            resolution: [0.05, 1.0]
+            resolution: [0.05, 0.2, 1.0]
             random_seed: *seeds
 
       # Two more Leidens, in R, on the same seed sweep. scanpy and rapids agree
@@ -279,7 +296,7 @@ stages:
           entrypoint: cluster
         parameters:
           - flavor: leiden_modularity
-            resolution: [0.05, 1.0]
+            resolution: [0.05, 0.2, 1.0]
             walktrap_steps: 4
             random_seed: *seeds
       - id: cl-seurat
@@ -292,7 +309,7 @@ stages:
         parameters:
           # --flavor is required by this module; leiden to match the others.
           - flavor: leiden
-            resolution: [0.05, 1.0]
+            resolution: [0.05, 0.2, 1.0]
             random_seed: *seeds
 
   # The bounds. Same output id as CLUST, so they land in CLUST-M beside the arms.
