@@ -181,3 +181,68 @@ spans 0.27→0.58 across resolutions on pancreas and 0.001 across clusterers.
   graph, or the shared graph stated as the design.
 * **n = 20 seeds** resolves a proportion to about ±0.05. Enough to rank, too
   coarse to separate 0.95 from 0.98.
+
+## 12. Adding the self-ensembling arms (sc3s, Markov stability)
+
+The point of the framework is this comparison: methods that buy stability by
+spending compute, priced against sweeping Leiden harder. Both modules exist.
+
+### Where they attach
+
+| arm | stage | consumes | note |
+|---|---|---|---|
+| sc3s | CLUST-E | `embedding_tsv` | reads the embedding, not the graph, so it is CLUST-E not CLUST. `permutation_seed` goes here, not on NNG. |
+| pygenstability (`cl-pgs`) | CLUST | `neighbors_h5` | Markov stability over scales; the scale selector is argmin-NVI |
+
+Both land in CLUST-M through the shared `clusters_tsv` fan-in, so no new metric
+stage is needed — the same poem call scores them beside Leiden and beside the
+CLUSTBOUND floor/ceiling.
+
+### Fix k and n_components; do not let the method choose
+
+sc3s can pick k itself. **Turn that off** and give it the same k the comparison
+is held at. Two reasons:
+
+* k is sc3s' INPUT and Leiden's OUTPUT. A method whose k never moves scores
+  trivially well on any k-stability measure, and that is not a merit — it is the
+  one axis on which the arms are not comparable at all.
+* Letting it choose introduces a second free parameter that differs per arm,
+  and the resolution<->k mapping is already scale-dependent per dataset.
+
+Same for **`n_components`: hold it at the value every other arm uses (50 here,
+or 30 — pick one and state it).** How PCA truncation affects clustering is a
+real question and a separate experiment; varying it inside this comparison
+would confound the ensembling question with the truncation question and answer
+neither.
+
+### Cost accounting
+
+Use `--cost ensemble` for the headline and `--cost sweep` beside it (see §11 of
+elite.py's docstring). sc3s at `n_runs=N` and pygenstability over scales pay
+their ensemble internally in one job; Leiden pays its sweep across k jobs and
+its seed spread across n more. Reporting only one mode picks the winner by
+accounting convention.
+
+The figure that answers the question: **stability gain against compute
+increase** — delta pairwise-ARI on the y axis, delta (seconds, peak RSS) on the
+x, with single-run Leiden at the origin. An ensembling method earns its place
+only if it sits above the line Leiden traces as its own ensemble grows.
+
+### Expect a negative result, and design for it
+
+Prior measurements in this project, worth re-testing rather than assuming:
+
+* consensus (sc3s) measured **less** order-stable than Leiden at matched k;
+* the Markov-stability arm was **dead as a stability arm** — its same-graph
+  control (0.70) was as bad as its permutation spread (0.66), so the argmin-NVI
+  scale selector was what moved, not Louvain.
+
+"You pay 10x compute for no stability gain" is a publishable finding. Set the
+run up to measure it, not to confirm the opposite.
+
+### Practical blockers
+
+* scSHC is blocked by **n^2 memory**, not time — it will not reach the larger
+  datasets.
+* `testClusters` silently returns K=1 when the root split isolates a tiny
+  cluster; drop clusters below ~20 cells before scoring.
