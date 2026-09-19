@@ -115,11 +115,30 @@ Mixed read paths make a cost comparison meaningless. Pick one for the ladder.
 * `gpu_upload` / `gpu_download` are charged to **compute**, not I/O. PCIe
   transfer is part of using the GPU; bucketing it with disk reads would let a
   GPU arm look cheaper on compute than it is.
-* **VRAM is not captured at all.** `performance.txt` reports host RSS only, so
-  for a rapids arm the memory figure is an undercount of unknown size. The
-  number you want is VRAM + host. This needs `nvidia-smi` sampling alongside
-  the job; until it exists, no memory comparison involving a GPU arm is
-  like-for-like.
+* **VRAM is not captured in any run so far.** `performance.txt` reports host RSS
+  only, so every rapids memory figure in the current figures is an undercount of
+  unknown size. The number you want is VRAM + host.
+
+  > **TODO when the denet instrumentation lands.** The mechanism now exists and
+  > is unblocked (see §9): denet samples `gpu.memory_used` alongside
+  > `mem_rss_kb`, so a `-prof` run gives both. Two things to redo once any run
+  > is profiled:
+  >
+  > 1. **Memory becomes VRAM + host for GPU arms.** Every plot with a memory
+  >    axis currently says "HOST RSS ONLY" in its label and must be regenerated
+  >    and relabelled: `plot_time_ram.py` (both modes), `plot_tradeoff.py`,
+  >    `fit_scaling.py`'s `peak_rss_mb`, and the `peak_gb` axis in `pareto.py`
+  >    and `elite.py`.
+  > 2. **Memory becomes per-phase rather than per-job.** `max_rss` is the peak
+  >    over the whole process, so for a module that materialises during `load`
+  >    it is the load's peak, not the algorithm's. Intersecting denet samples
+  >    with the obkit phase boundaries gives compute-only memory, which is what
+  >    the cost axis should use.
+  >
+  > Caveat to carry over: denet's GPU metrics are SYSTEM-wide
+  > (`has_process_data: false`), so on a shared GPU they are not attribution.
+  > The ladder protocol already requires an idle machine, which makes them a
+  > usable proxy there and nowhere else.
 
 ## 8. Do not assume a single power law
 
