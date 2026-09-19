@@ -1,0 +1,14 @@
+name: omni-data
+channels:
+- https://prefix.dev/almost-conductor
+- conda-forge
+- nodefaults
+dependencies:
+# Exact pin, not "*". hapiq publishes one package per commit as
+# 0.0.0.dev<git-sha>, and conda orders those as strings: "devfe06d05" sorts
+# above "dev5224e43" because f > 5, so "*" resolves to whichever SHA happens to
+# spell the largest version -- an old readme commit at the time of writing, one
+# without the directory support this benchmark's DATA stage needs. A range does
+# not help for the same reason. dev5224e43 is the merge of hapiq#10.
+- hapiq ==0.0.0.dev5224e43
+- bash *

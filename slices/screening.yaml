@@ -1,0 +1,272 @@
+name: dataset-screening
+id: dataset_screening
+description: >
+  Headroom screen. Runs each candidate dataset to an embedding, then the
+  CLUSTBOUND floor/ceiling plus ONE cheap clustering probe. The output is
+  "how much of the achievable range does a standard Leiden leave on the table",
+  which is the criterion for whether a dataset can discriminate methods at all.
+  A dataset already at its ceiling cannot, however much it is resampled.
+benchmarker: "Ben <ben.uzh@proton.me>"
+
+version: "0.1.0"
+api_version: "0.4.0"
+
+software_backend: "conda"
+
+# NOTE: needs ob on gather-lean-3 -- CLUST and CLUSTBOUND both emit clusters_tsv
+# and CLUST-M must see both producers. On main the bounds vanish with no error.
+
+software_environments:
+  omni_data:
+    name: omni-data fixture loader
+    # Exact hapiq pin: "*" resolves by version STRING across dev builds and
+    # lands on one without directory support, which every DATA module here
+    # needs (uri_type: directory).
+    conda: ../envs/omni-data-pinned.yml
+  py_conda:
+    name: Python conda env
+    conda: ../envs/py.yml
+  scanpy:
+    name: scanpy multi-module
+    conda: ../envs/scanpy.yml
+  scrapper:
+    name: scrapper multi-module
+    conda: ../envs/scrapper.yml
+  metrics:
+    name: metrics env
+    conda: ../envs/metrics.yaml
+
+# One omni-data module per candidate; the module id IS {dataset}, so it must
+# match the stem the files are published with.
+data_module: &data
+  software_environment: omni_data
+  repository:
+    url: https://github.com/btraven00/omni-data
+    commit: 80611e83d13c8bd0d15fbc033c6a5e1a7900a0b8
+
+stages:
+  - id: DATA
+    outputs:
+      - id: rawdata_h5ad
+        path: "{dataset}.h5ad"
+      - id: rawdata_clusters_truth
+        path: "{dataset}.clusters_truth.tsv"
+      - id: rawdata_clusters_truth_num
+        path: "{dataset}.clusters_truth_num.txt"
+      - id: properties_info
+        path: "{dataset}_properties.yaml"
+    modules:
+      # pbmc (161k cells) is deliberately absent: it OOMs stage-by-stage at this
+      # scale and needs the per-stage core caps, which would distort the timings
+      # every other dataset here contributes. Screen it on its own.
+      - id: tm-facs-marrow
+        name: "Tabula Muris FACS marrow (5k cells, 22 labels)"
+        <<: *data
+        parameters:
+          - uri: file:///home/b/phd/data/tm_omnidata/tm-facs-marrow/
+            uri_type: directory
+      - id: tm-droplet-trachea
+        name: "Tabula Muris droplet trachea (11k cells, 5 labels)"
+        <<: *data
+        parameters:
+          - uri: file:///home/b/phd/data/tm_omnidata/tm-droplet-trachea/
+            uri_type: directory
+      - id: tm-facs
+        name: "Tabula Muris FACS full (45k cells, 81 labels)"
+        <<: *data
+        parameters:
+          - uri: file:///home/b/phd/data/tm_omnidata/tm-facs/
+            uri_type: directory
+      - id: tm-droplet
+        name: "Tabula Muris droplet full (55k cells, 55 labels)"
+        <<: *data
+        parameters:
+          - uri: file:///home/b/phd/data/tm_omnidata/tm-droplet/
+            uri_type: directory
+
+  - id: FILT
+    inputs:
+      - rawdata_h5ad
+      - properties_info
+    outputs:
+      - id: filtered_cellids
+        path: "{dataset}_cellids.txt.gz"
+      - id: filtered_featureids
+        path: "{dataset}_featureids.txt.gz"
+      - id: size_factor_tsv
+        path: "{dataset}_size_factors.tsv"
+    modules:
+      - id: fi-scrapper
+        name: "scrapper-style filtering"
+        software_environment: "scrapper"
+        repository:
+          url: https://github.com/omni-scrna/scrapper
+          commit: f201861
+          entrypoint: filter
+
+  - id: NORM
+    inputs:
+      - rawdata_h5ad
+      - filtered_cellids
+      - filtered_featureids
+    outputs:
+      - id: normalized_h5
+        path: "{dataset}_normalized.h5"
+    modules:
+      - id: nr-scanpy
+        name: "Python-based scRNA-seq normalization methods"
+        software_environment: "py_conda"
+        repository:
+          url: https://github.com/omni-scrna/scanpy
+          commit: b5c6855
+          entrypoint: normalize
+        parameters:
+          - flavor: ["log1pCP10k"]
+
+  - id: FEAT
+    inputs:
+      - rawdata_h5ad
+      - normalized_h5
+      - filtered_cellids
+      - filtered_featureids
+      - properties_info
+    outputs:
+      - id: normalized_selected_h5
+        path: "{dataset}_normalized_selected.h5"
+    modules:
+      - id: fe-scanpy
+        name: "scanpy-based gene selection"
+        software_environment: "scanpy"
+        repository:
+          url: https://github.com/omni-scrna/scanpy
+          commit: 2a56c14
+          entrypoint: feat-select
+        parameters:
+          # scanpy_seurat, NOT pearson_residuals. Measured on the clustering
+          # slice: pearson_residuals peaked at 1.9GB on 4.5k cells and 17.2GB on
+          # 12.1k -- about n^2.2, because sc.experimental's residual path
+          # densifies. Extrapolated to the 45-55k datasets here that is ~300GB
+          # on a 61GB box. scanpy_seurat goes through sc.pp.highly_variable_genes
+          # and stays sparse.
+          - flavor: ["scanpy_seurat"]
+            number_selected: 2000
+
+  - id: PCA
+    resources:
+      cores: 4
+    inputs:
+      - normalized_selected_h5
+    outputs:
+      - id: embedding_tsv
+        path: "{dataset}_embedding.tsv"
+      - id: loadings_tsv
+        path: "{dataset}_loadings.tsv"
+    modules:
+      - id: pc-scanpy
+        name: "scanpy PCA"
+        software_environment: "scanpy"
+        repository:
+          url: https://github.com/omni-scrna/scanpy
+          commit: b41bf43
+          entrypoint: pca
+        parameters:
+          - solver: arpack
+            dense: "false"
+            n_components: 50
+            random_seed: 1
+
+  # The screen itself: floor, ceiling, and one probe to measure headroom against.
+  - id: CLUSTBOUND
+    inputs:
+      - embedding_tsv
+      - rawdata_clusters_truth
+    outputs:
+      - id: clusters_tsv
+        path: "{dataset}_clusters.tsv"
+    modules:
+      - id: cb-chance
+        name: "Chance floor"
+        software_environment: "metrics"
+        repository:
+          url: /home/b/lab/omni-scrna/split-stages-plan-modules/metrics
+          commit: a4f18b2
+          entrypoint: bounds-py
+        parameters:
+          - bound: chance
+            n_clusters: 0        # the truth's own k
+            random_seed: [1, 2, 3]
+      - id: cb-oracle
+        name: "Supervised ceiling"
+        software_environment: "metrics"
+        repository:
+          url: /home/b/lab/omni-scrna/split-stages-plan-modules/metrics
+          commit: a4f18b2
+          entrypoint: bounds-py
+        parameters:
+          # logreg only: knn was uniformly the weaker ceiling and the screen
+          # only needs the best one. n_splits 3 rather than 5 -- this is a
+          # screen, and 81-label tm-facs has classes in the single digits.
+          - bound: oracle
+            classifier: logreg
+            n_splits: 3
+            random_seed: 1
+
+  # The probe. One clusterer, a coarse resolution grid: enough to locate each
+  # dataset's best standard-Leiden result without sweeping it properly.
+  - id: NNG
+    resources:
+      cores: 4
+    inputs:
+      - embedding_tsv
+    outputs:
+      - id: neighbors_h5
+        path: "{dataset}_neighbors.h5"
+    modules:
+      - id: nn-scanpy
+        name: "scanpy KNN graph"
+        software_environment: "scanpy"
+        repository:
+          url: https://github.com/omni-scrna/scanpy
+          commit: b41bf43
+          entrypoint: knn
+        parameters:
+          - n_neighbors: 15
+            flavor: "umap"
+            random_seed: 1
+
+  - id: CLUST
+    resources:
+      cores: 2
+    inputs:
+      - neighbors_h5
+    outputs:
+      - id: clusters_tsv
+        path: "{dataset}_clusters.tsv"
+    modules:
+      - id: cl-scanpy
+        name: "scanpy Leiden clustering"
+        software_environment: "scanpy"
+        repository:
+          url: https://github.com/omni-scrna/scanpy
+          commit: b41bf43
+          entrypoint: cluster
+        parameters:
+          - flavor: igraph
+            resolution: [0.05, 0.2, 0.5, 1.0]
+            random_seed: 1
+
+  - id: CLUST-M
+    inputs:
+      - clusters_tsv
+      - rawdata_clusters_truth
+    outputs:
+      - id: cluster_metrics
+        path: "{dataset}_cluster_metrics.json"
+    modules:
+      - id: cl-metrics-r
+        name: "Partition metrics in R"
+        software_environment: "metrics"
+        repository:
+          url: /home/b/lab/omni-scrna/split-stages-plan-modules/metrics
+          commit: a4f18b2
+          entrypoint: cluster-r
