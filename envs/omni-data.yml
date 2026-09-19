@@ -4,5 +4,9 @@ channels:
 - conda-forge
 - nodefaults
 dependencies:
-- hapiq *
+# Pinned, not `hapiq *`. The conda versions are 0.0.0.dev<git-sha>, so `*`
+# resolves by lexical SHA order rather than by date and can land on a build
+# that predates a feature: it picked dev.fe06d05, which has no --directory,
+# and every `uri_type: directory` fixture died with "unknown flag: --directory".
+- hapiq ==0.0.0.dev08823ee
 - bash *

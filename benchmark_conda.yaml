@@ -4,7 +4,7 @@ description: This benchmark lays out stages for each step of an scRNA-seq pipeli
 benchmarker: "Mark Robinson <mark.robinson@mls.uzh.ch>"
 
 # Benchmark configuration
-version: "0.0.3"
+version: "0.1.0"
 api_version: "0.4.0"
 
 provenance:
@@ -55,6 +55,13 @@ software_environments:
   sklearn:
     name: sklearn multi-module
     conda: envs/sklearn.yml
+  # The rapids modules are GPU-only, so they declare `requires_capabilities: [gpu]`
+  # and are pruned from the DAG unless the run passes `--with-capability gpu`.
+  # That field needs omnibenchmark >= 0.7.0; older versions ignore it and would
+  # schedule these modules on a CPU host; comment the modules by hand if you're on 0.6.0
+  rapids_singlecell:
+    name: rapids-singlecell (GPU)
+    conda: envs/rapids-singlecell.yml
 
 stages:
   - id: DATA
@@ -73,7 +80,7 @@ stages:
         software_environment: r_conda
         repository:
           url: https://github.com/omni-scrna/1-data
-          commit: 607208a
+          commit: 4e4f1a5
         parameters:
           - dataset_name: "be1"
             batch_var: Sample
@@ -88,7 +95,7 @@ stages:
         software_environment: r_conda
         repository:
           url: https://github.com/omni-scrna/1-data
-          commit: 607208a
+          commit: 4e4f1a5
         parameters:
           - dataset_name: "sc-mix"
             batch_var: null
@@ -99,7 +106,7 @@ stages:
         software_environment: r_conda
         repository:
           url: https://github.com/omni-scrna/1-data
-          commit: 607208a
+          commit: 4e4f1a5
         parameters:
           - dataset_name: "be1-subset"
             batch_var: Sample
@@ -110,7 +117,7 @@ stages:
         software_environment: r_conda
         repository:
           url: https://github.com/omni-scrna/1-data
-          commit: 607208a
+          commit: 4e4f1a5
         parameters:
           - dataset_name: "cb"
             batch_var: species
@@ -167,7 +174,7 @@ stages:
         software_environment: "seurat"
         repository:
           url: https://github.com/omni-scrna/seurat
-          commit: 47b8e31
+          commit: 984d35a
           entrypoint: normalize
         parameters:
           - flavor: ["sctransformv2"]
@@ -191,7 +198,7 @@ stages:
           - d-pca
         repository:
           url: https://github.com/omni-scrna/seurat
-          commit: db6c6ba
+          commit: 984d35a
           entrypoint: select
         parameters:
           - selection_type: ["seurat_vst", "seurat_vst_batch"]
@@ -265,6 +272,26 @@ stages:
           - solver: [exact, irlba, random]
             n_components: 50
             random_seed: 42
+      # `--solver` is pinned to the input density it is valid for:
+      # rsc dispatches on density before the solver and would silently
+      # substitute, so our module raises rather than mis-report. Both of these
+      # are the sparse-input solvers. covariance-eigh is the exact control
+      # randomized-halko is seed-sensitive.
+      - id: pc-rapids
+        name: "rapids-singlecell PCA (GPU)"
+        software_environment: "rapids_singlecell"
+        requires_capabilities: [gpu]
+        exclude:
+          - d-feat-sel
+          - d-annotation
+        repository:
+          url: https://github.com/omni-scrna/rapids-singlecell
+          commit: b28deb6
+          entrypoint: pca
+        parameters:
+          - solver: [covariance-eigh, randomized-halko]
+            n_components: 50
+            random_seed: 42
 
   - id: ISOMAP
     resources:
@@ -334,6 +361,19 @@ stages:
           - n_neighbors: 15
             random_seed: 42
             flavor: "umap"
+      - id: nn-rapids
+        name: "rapids-singlecell KNN graph (GPU)"
+        software_environment: "rapids_singlecell"
+        requires_capabilities: [gpu]
+        repository:
+          url: https://github.com/omni-scrna/rapids-singlecell
+          commit: b28deb6
+          entrypoint: knn
+        parameters:
+          # rsc.pp.neighbors at the cuVS default
+          - n_neighbors: 15
+            random_seed: 42
+            flavor: "rapids"
 
   - id: GRAPH-M
     inputs:
@@ -401,6 +441,21 @@ stages:
             resolution: [0.5, 1.0]
             walktrap_steps: [2, 4]
             random_seed: 42
+      - id: cl-rapids
+        name: "rapids-singlecell graph clustering (GPU)"
+        software_environment: "rapids_singlecell"
+        requires_capabilities: [gpu]
+        repository:
+          url: https://github.com/omni-scrna/rapids-singlecell
+          commit: b28deb6
+          entrypoint: cluster
+        parameters:
+          - method: "rapids-leiden"
+            resolution: [0.5, 1.0]
+            random_seed: 42
+          # rsc louvain has no seed parameter
+          - method: "rapids-louvain"
+            resolution: [0.5, 1.0]
 
   - id: CLUST-M
     inputs:
@@ -437,34 +492,31 @@ stages:
           - d-pca
           - d-annotation
           - d-feat-sel
-          - cntfct
         repository:
           url: https://github.com/omni-scrna/7-integrate
           commit: 52c6c64
           entrypoint: harmony-r
         parameters:
           - theta: [0.1, 2]
-      - id: in-seurat
-        name: "Seurat IntegrateLayers batch correction"
-        software_environment: "seurat"
-        exclude:
-          - cntfct
-          - d-pca
-          - d-annotation
-          - d-feat-sel
-          - cntfct
-        repository:
-          url: https://github.com/omni-scrna/seurat
-          commit: db6c6ba
-          entrypoint: integrate
-        parameters:
-          - method: [rpca]
-            k_anchor: [5, 20]
+#      - id: in-seurat
+#        name: "Seurat IntegrateLayers batch correction"
+#        software_environment: "seurat"
+#        exclude:
+#          - d-pca
+#          - d-annotation
+#          - d-feat-sel
+#          - cntfct
+#        repository:
+#          url: https://github.com/omni-scrna/seurat
+#          commit: db6c6ba
+#          entrypoint: integrate
+#        parameters:
+#          - method: [rpca]
+#            k_anchor: [5, 20]
       - id: in-scanorama
         name: "Scanorama batch correction"
         software_environment: "integrate-py"
         exclude:
-          - cntfct
           - d-pca
           - d-annotation
           - d-feat-sel
@@ -578,6 +630,30 @@ stages:
             cluster_method: "xi"
             xi: 0.05
             random_seed: 42
+      - id: cl-rapids-embed
+        name: "rapids-singlecell embedding clustering (GPU)"
+        software_environment: "rapids_singlecell"
+        requires_capabilities: [gpu]
+        repository:
+          url: https://github.com/omni-scrna/rapids-singlecell
+          commit: b28deb6
+          entrypoint: cluster_embedding
+        parameters:
+          - method: "rapids-kmeans"
+            n_clusters: [10, 20]
+            random_seed: 42
+          # hdbscan and dbscan have no seed parameter; 
+          # Both emit -1 for noise points, which CLUST-M has to handle.
+          - method: "rapids-hdbscan"
+            min_samples: [10, 30]
+            min_cluster_size: 25
+          # eps is an absolute distance in PCA space, so it does not transfer
+          # across datasets or n_components. Measured on be1 (50 PCs): kNN
+          # distances run 4.2-35.6, median 11.8 -- eps 0.5/1.0 was below the
+          # closest pair in the data and labelled every cell noise.
+          - method: "rapids-dbscan"
+            eps: [10, 14]
+            min_samples: [10, 30]
 
   - id: ANNO
     inputs:
