@@ -1,0 +1,23 @@
+---
+name: sc3s
+channels:
+  - conda-forge
+dependencies:
+  # sc3s is not on conda-forge, so it comes from pip. Its declared deps are
+  # listed here so pip has only the package itself left to install (a conda
+  # pip: block cannot pass --no-deps).
+  - python=3.11
+  - numpy
+  - scipy
+  - scikit-learn
+  - pandas
+  - anndata
+  - h5py
+  - polars
+  - pip
+  - pip:
+      # PyPI sc3s. Pinned: the package is unmaintained (last release 2021) and
+      # an unpinned install would drift against whatever numpy/anndata resolve
+      # to. python=3.11, not 3.14: sc3s predates the 3.12 removals and has not
+      # been tested above 3.11 here.
+      - sc3s==0.1.1
