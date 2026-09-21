@@ -26,7 +26,11 @@ conda = "*"
 go-yq = "*"
 
 [feature.plan.pypi-dependencies]
-omnibenchmark = { git = "https://github.com/omnibenchmark/omnibenchmark.git", branch = "gather-lean-3" }
+# Pinned to a rev, not the branch: two machines installing on different days
+# off `branch` landed on different commits (7e56919 vs 071c56d), which would
+# have run the two halves of a split benchmark on different omnibenchmarks.
+# 071c56d is gather-lean-3 HEAD as of 2026-09-21.
+omnibenchmark = { git = "https://github.com/omnibenchmark/omnibenchmark.git", rev = "071c56d98" }
 
 [feature.plan.tasks]
 validate-plan = "ob validate plan benchmark_conda.yaml"
