@@ -23,6 +23,7 @@ dependencies:
   - imagemagick=7.1.2_25 # o/w poem does not load
   - r-pdist=1.2.1
   - r-aricode=1.0.3 
+  - r-clevr *  # cluster.R computes VM/EH/EC here instead of loading poem
   - r-data.table *
   - r-mlmetrics *
   - bioconductor-cellmixs *
