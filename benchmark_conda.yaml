@@ -328,7 +328,7 @@ stages:
           - d-feat-sel
           - d-annotation
         repository:
-          url: https://github.com/btraven00/rcppml
+          url: https://github.com/omni-scrna/rcppml
           commit: 28b8cb94d4c819d6b080a7f6f6f9dadec2c9458d
           entrypoint: pca
         parameters:
@@ -354,7 +354,7 @@ stages:
           - nr-seurat
           - nr-scanpy
         repository:
-          url: https://github.com/btraven00/rcppml
+          url: https://github.com/omni-scrna/rcppml
           commit: 28b8cb94d4c819d6b080a7f6f6f9dadec2c9458d
           entrypoint: nmf
         parameters:
@@ -372,7 +372,7 @@ stages:
           - d-feat-sel
           - d-annotation
         repository:
-          url: https://github.com/btraven00/rcppml
+          url: https://github.com/omni-scrna/rcppml
           commit: 28b8cb94d4c819d6b080a7f6f6f9dadec2c9458d
           entrypoint: pca
         parameters:
@@ -391,7 +391,7 @@ stages:
           - nr-seurat
           - nr-scanpy
         repository:
-          url: https://github.com/btraven00/rcppml
+          url: https://github.com/omni-scrna/rcppml
           commit: 28b8cb94d4c819d6b080a7f6f6f9dadec2c9458d
           entrypoint: nmf
         parameters:
