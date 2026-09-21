@@ -152,3 +152,17 @@ gpu = drop(gpu, {"pc-scanpy", "cl-scanpy", "cl-scrapper", "cl-seurat", "cl-sc3s"
 gpu = retitle(gpu, "definitive-gpu", HDR_GPU)
 pathlib.Path("slices/definitive-gpu.yaml").write_text("\n".join(gpu))
 print("wrote both")
+
+# --- per-dataset CPU halves -------------------------------------------------
+# One dataset at a time, so a run can be placed on a machine that suits its
+# size. The DATA stanzas are untouched, so every node hashes the same as it
+# would in the combined slice and the out/ trees still merge by path.
+DATASETS = ["d-integration", "tm-facs", "tm-droplet", "aifi-d1"]
+
+for ds in DATASETS:
+    one = drop(list(cpu), {d for d in DATASETS if d != ds})
+    one = [l.replace("name: definitive-cpu", f"name: definitive-cpu-{ds}")
+            .replace("id: definitive_cpu", f"id: definitive_cpu_{ds.replace('-', '_')}")
+           for l in one]
+    pathlib.Path(f"slices/definitive-cpu-{ds}.yaml").write_text("\n".join(one))
+print("wrote per-dataset slices:", ", ".join(DATASETS))

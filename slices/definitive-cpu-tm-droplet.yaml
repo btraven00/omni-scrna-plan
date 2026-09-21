@@ -1,0 +1,391 @@
+# GENERATED from definitive.yaml -- edit that, then regenerate.
+# Split for a two-machine run; the shared DATA/FILT/NORM/FEAT/NNG stanzas
+# are byte-identical to the GPU half so the param hashes match and the two
+# out/ trees merge by path.
+# The -prof entrypoints are swapped for plain ones: they invoke denet, which
+# is a cargo binary present on neither host.
+
+name: definitive-cpu-tm-droplet
+id: definitive_cpu_tm_droplet
+description: >
+  Clustering slice with its own floor and ceiling. A dummy dataset through the
+  minimum path to an embedding, then two clusterers and two bounds, all four
+  scored by the same poem call. Answers what a CLUST metric alone cannot: is an
+  arm's ARI good, or merely better than chance -- and how much of the gap to
+  what the embedding actually carries is left on the table.
+benchmarker: "Ben <ben.uzh@proton.me>"
+
+version: "0.1.0"
+api_version: "0.4.0"
+
+software_backend: "conda"
+
+# NOTE: needs ob on gather-lean-3. CLUST and CLUSTBOUND both emit clusters_tsv,
+# and that shared-output-id fan-in into CLUST-M is what makes a bound and an arm
+# the same number. On main CLUST-M silently takes one producer and the bounds
+# vanish without an error. pixi.toml already pins the branch.
+
+# Env paths resolve relative to THIS file, not the invocation directory.
+software_environments:
+  r_conda:
+    name: R conda env
+    conda: ../envs/r.yml
+  omni_data:
+    name: omni-data fixture loader
+    conda: ../envs/omni-data-pinned.yml
+  py_conda:
+    name: Python conda env
+    conda: ../envs/py.yml
+  scanpy:
+    name: scanpy multi-module
+    conda: ../envs/scanpy.yml
+  scrapper:
+    name: scrapper multi-module
+    conda: ../envs/scrapper.yml
+  metrics:
+    name: metrics env
+    conda: ../envs/metrics.yaml
+  sc3s:
+    name: SC3s consensus clustering
+    conda: ../envs/sc3s.yml
+  rapids_singlecell:
+    name: rapids-singlecell GPU env (needs an NVIDIA GPU)
+    conda: ../envs/rapids-singlecell.yml
+  seurat:
+    name: Seurat multi-module
+    conda: ../envs/seurat.yml
+
+# Clustering seeds: nested inside each embedding, so they buy precision
+# within an embedding, not independent draws.
+seeds: &seeds [1, 2, 3, 4, 5]
+# PCA seeds: the OUTERMOST randomisation unit, and therefore what sets the
+# effective sample size for a bootstrap CI on epsilon. At 3 it was n_eff~3
+# and no dominance claim could survive inference.
+pca_seeds: &pca_seeds [1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+                       11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+seed0: &seed0 1
+
+stages:
+  # be1-subset: the dummy. Small enough that GRAPH-M is affordable here, which
+  # it is not at facs/pbmc scale (~55min, ~2GB per job). This slice proves the
+  # wiring and the bracket; it is not where the science gets decided.
+  - id: DATA
+    outputs:
+      - id: rawdata_h5ad
+        path: "{dataset}.h5ad"
+      - id: rawdata_clusters_truth
+        path: "{dataset}.clusters_truth.tsv"
+      - id: rawdata_clusters_truth_num
+        path: "{dataset}.clusters_truth_num.txt"
+      - id: properties_info
+        path: "{dataset}_properties.yaml"
+    modules:
+      # pancreas, 12,115 cells, 8 classes
+      - id: tm-droplet
+        name: "tm-droplet via omni-data"
+        software_environment: omni_data
+        repository:
+          url: https://github.com/btraven00/omni-data
+          commit: 80611e83d13c8bd0d15fbc033c6a5e1a7900a0b8
+        parameters:
+          - uri: file:///home/ben/oracles/data/tm_omnidata/tm-droplet/
+            uri_type: directory
+
+      # 151,056 cells, 29 classes
+  - id: FILT
+    inputs:
+      - rawdata_h5ad
+      - properties_info
+    outputs:
+      - id: filtered_cellids
+        path: "{dataset}_cellids.txt.gz"
+      - id: filtered_featureids
+        path: "{dataset}_featureids.txt.gz"
+      - id: size_factor_tsv
+        path: "{dataset}_size_factors.tsv"
+    modules:
+      - id: fi-scrapper
+        name: "scrapper-style filtering"
+        software_environment: "scrapper"
+        repository:
+          url: https://github.com/omni-scrna/scrapper
+          commit: f201861
+          entrypoint: filter
+
+  - id: NORM
+    inputs:
+      - rawdata_h5ad
+      - filtered_cellids
+      - filtered_featureids
+    outputs:
+      - id: normalized_h5
+        path: "{dataset}_normalized.h5"
+    modules:
+      - id: nr-scanpy
+        name: "Python-based scRNA-seq normalization methods"
+        software_environment: "py_conda"
+        repository:
+          url: https://github.com/omni-scrna/scanpy
+          commit: b5c6855
+          entrypoint: normalize
+        parameters:
+          - flavor: ["log1pCP10k"]
+
+  - id: FEAT
+    inputs:
+      - rawdata_h5ad
+      - normalized_h5
+      - filtered_cellids
+      - filtered_featureids
+      - properties_info
+    outputs:
+      - id: normalized_selected_h5
+        path: "{dataset}_normalized_selected.h5"
+    modules:
+      - id: fe-scanpy
+        name: "scanpy-based gene selection"
+        software_environment: "scanpy"
+        repository:
+          url: https://github.com/omni-scrna/scanpy
+          commit: 2a56c14
+          entrypoint: feat-select
+        parameters:
+          # scanpy_seurat, not pearson_residuals: the latter measured 1.9GB at
+          # 4.5k cells and 17.2GB at 12.1k (~n^2.2, sc.experimental densifies),
+          # which extrapolates to ~300GB at tm-droplet's 55k on a 61GB box.
+          - flavor: ["scanpy_seurat"]
+            number_selected: 2000
+
+  - id: PCA
+    inputs:
+      - normalized_selected_h5
+    outputs:
+      - id: embedding_tsv
+        path: "{dataset}_embedding.tsv"
+      - id: loadings_tsv
+        path: "{dataset}_loadings.tsv"
+    modules:
+      # arpack: exact and deterministic, so PCA contributes no variance of its
+      # own and both the arms and the bounds see one fixed embedding.
+      - id: pc-scanpy
+        name: "scanpy PCA"
+        software_environment: "scanpy"
+        repository:
+          url: https://github.com/omni-scrna/scanpy
+          commit: b41bf43
+          entrypoint: pca
+        parameters:
+          # Deterministic reference. arpack has NO seed axis, so one draw is all
+          # there is -- sweeping random_seed here would produce byte-identical
+          # embeddings and a null result that looks like "PCA seed does not
+          # matter".
+          - solver: arpack
+            dense: "false"
+            n_components: 50
+            random_seed: *seed0
+          # The real PCA seed axis. scanpy coerces solver=randomized to arpack on
+          # SPARSE input (pca.py:21 "silently ignored", measured byte-identical),
+          # so the seed only bites with dense: true, where seed 42 vs 43 moved the
+          # embedding by 1.7e-3. Dense here is 55k x 2000 x 8B ~= 0.9GB, affordable.
+          - solver: randomized
+            dense: "true"
+            n_components: 50
+            random_seed: *pca_seeds
+      # Second exact arm, different library. covariance-eigh is a deterministic
+      # gram+eigh, so it has no seed axis by construction -- that is the point:
+      # it isolates how much of the pipeline spread survives when the embedding
+      # is fixed, and whether two independent exact solvers land in the same
+      # place (scanpy's own notes put covariance_eigh within 8e-13 of arpack).
+
+      # Third PCA arm, and the only one that threads: libscran's irlba behind
+      # scrapper::runPca, with --num_threads wired through. scanpy's randomized
+      # arm needs dense input to have a seed axis at all (it silently coerces to
+      # arpack on sparse), so this is the sparse-native seed axis, and the one
+      # that can actually use the 64 cores on the CPU host.
+      - id: pc-scrapper
+        name: "scrapper PCA (libscran irlba, threaded)"
+        software_environment: "scrapper"
+        repository:
+          url: https://github.com/btraven00/scrapper
+          commit: 4f14524
+          entrypoint: pca
+        parameters:
+          - solver: irlba
+            backend: memory        # matched to scanpy/rapids: no DelayedArray
+            dense: "false"
+            num_threads: 8
+            n_components: 50
+            random_seed: *pca_seeds
+  # ---------------------------------------------------------------------------
+  # The comparison. CLUST and CLUSTBOUND both emit clusters_tsv; CLUST-M scores
+  # all four producers with one poem call.
+  # ---------------------------------------------------------------------------
+  - id: NNG
+    inputs:
+      - embedding_tsv
+    outputs:
+      - id: neighbors_h5
+        path: "{dataset}_neighbors.h5"
+    modules:
+      - id: nn-scanpy
+        name: "scanpy KNN graph"
+        software_environment: "scanpy"
+        repository:
+          url: https://github.com/omni-scrna/scanpy
+          commit: b41bf43
+          entrypoint: knn
+        parameters:
+          - n_neighbors: 15
+            flavor: "umap"
+            random_seed: 42
+
+  - id: CLUST
+    inputs:
+      - neighbors_h5
+    outputs:
+      - id: clusters_tsv
+        path: "{dataset}_clusters.tsv"
+    modules:
+      - id: cl-scanpy
+        name: "scanpy Leiden clustering"
+        software_environment: "scanpy"
+        repository:
+          url: https://github.com/omni-scrna/scanpy
+          commit: b41bf43
+          entrypoint: cluster
+        parameters:
+          # Stability sweep: two resolutions, many seeds. Expanding the seed
+          # in the plan rather than looping inside the module costs ~8x -- each
+          # job re-pays ~2.2s of interpreter start, and its CLUST-M scoring
+          # re-pays 7.4s of loading R's poem to perform 0.028s of arithmetic --
+          # and buys back every line of module code: --random_seed already
+          # exists on all four clusterers, so one list covers scanpy, rapids,
+          # scrapper and seurat with nothing added, and snakemake parallelises
+          # it. The internalised --repeats alternative needed a new entrypoint
+          # per clusterer, in two languages.
+          #
+          # Only CLUST's seed moves: the graph above is fixed, so this isolates
+          # Leiden's own stochasticity, not kNN or PCA variation (those are
+          # separate axes -- permutation_seed on NNG).
+          - flavor: igraph
+            resolution: [0.05, 0.2, 0.5, 1.0, 2.0]
+            random_seed: *seeds
+      # GPU arm. requires_capabilities gates it, so the slice still runs on a
+      # box without a GPU -- just without this arm.
+      - id: cl-scrapper
+        name: "scrapper clustering"
+        software_environment: "scrapper"
+        repository:
+          url: https://github.com/omni-scrna/scrapper
+          commit: 8a1cfd8
+          entrypoint: cluster
+        parameters:
+          - flavor: leiden_modularity
+            resolution: [0.05, 0.2, 0.5, 1.0, 2.0]
+            walktrap_steps: 4
+            random_seed: *seeds
+      - id: cl-seurat
+        name: "Seurat clustering"
+        software_environment: "seurat"
+        repository:
+          url: https://github.com/omni-scrna/seurat
+          commit: 537d178
+          entrypoint: cluster
+        parameters:
+          # --flavor is required by this module; leiden to match the others.
+          - flavor: leiden
+            resolution: [0.05, 0.2, 0.5, 1.0, 2.0]
+            random_seed: *seeds
+
+  # The bounds. Same output id as CLUST, so they land in CLUST-M beside the arms.
+  - id: CLUST-E
+    resources:
+      cores: 4
+    inputs:
+      - embedding_tsv
+    outputs:
+      - id: clusters_tsv
+        path: "{dataset}_clusters.tsv"
+    modules:
+      # sc3s takes k directly rather than a resolution, so the k sweep is the
+      # analogue of the Leiden resolution sweep and brackets all four truths
+      # (8 / 29 / 55 / 81). n_runs is the consensus knob and the reason this arm
+      # is here: measured on pancreas, going 5 -> 25 cut the ARI sd 16x
+      # (0.123 -> 0.0075) AND raised the mean. No Leiden arm can buy
+      # reproducibility with compute inside one job.
+      #
+      # 3 clustering seeds, not 5: 6 k x 2 n_runs already multiplies out, and
+      # the n_runs contrast is what this arm is for.
+      - id: cl-sc3s
+        name: "SC3s consensus clustering"
+        software_environment: sc3s
+        repository:
+          url: https://github.com/btraven00/sc3s
+          commit: e6e6a85
+          entrypoint: cluster
+        parameters:
+          - n_clusters: [8, 12, 20, 30, 55, 80]
+            d_range: 50
+            n_runs: [5, 25]
+            random_seed: [1, 2, 3]
+            permutation_seed: 0
+
+  - id: CLUSTBOUND
+    inputs:
+      - embedding_tsv
+      - rawdata_clusters_truth
+    outputs:
+      - id: clusters_tsv
+        path: "{dataset}_clusters.tsv"
+    modules:
+      # Floor. One run is one draw; the seed sweep is the distribution. k is
+      # swept because chance level depends on it -- the same confounder that
+      # makes ARI at fixed resolution rank arms by cluster count.
+      - id: cb-chance
+        name: "Chance floor (label permutation)"
+        software_environment: "metrics"
+        repository:
+          # Local checkout until bounds/ is pushed; needs --dirty.
+          url: https://github.com/btraven00/omni-scrna-metrics
+          commit: 9aedfb5
+          entrypoint: bounds-py
+        parameters:
+          - bound: chance
+            n_clusters: [0, 10, 20]   # 0 = the truth's own k
+            random_seed: [1, 2, 3, 4, 5]
+      # Ceiling. Two classifiers because the ceiling is only as good as the
+      # classifier -- take the max, not one arm.
+      - id: cb-oracle
+        name: "Supervised ceiling"
+        software_environment: "metrics"
+        repository:
+          # Local checkout until bounds/ is pushed; needs --dirty.
+          url: https://github.com/btraven00/omni-scrna-metrics
+          commit: 9aedfb5
+          entrypoint: bounds-py
+        parameters:
+          - bound: oracle
+            classifier: [logreg, knn]
+            n_splits: 5
+            random_seed: 42
+
+  # poem, on the graph itself: intrinsic quality of the kNN graph the arms were
+  # clustered from, independent of any partition.
+  - id: CLUST-M
+    inputs:
+      - clusters_tsv
+      - rawdata_clusters_truth
+    outputs:
+      - id: cluster_metrics
+        path: "{dataset}_cluster_metrics.json"
+    modules:
+      - id: cl-metrics-r
+        name: "Partition metrics in R"
+        software_environment: "metrics"
+        repository:
+          # Same local checkout as the bounds, same commit: k_found lands here
+          # and the bounds land in bounds/, so one branch (oracles) carries the
+          # whole change and it can be reviewed in one place.
+          url: https://github.com/btraven00/omni-scrna-metrics
+          commit: 9aedfb5
+          entrypoint: cluster-r
