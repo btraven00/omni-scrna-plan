@@ -296,31 +296,6 @@ stages:
             n_components: 50
             random_seed: 42
 
-  - id: ISOMAP
-    resources:
-      cores: 4
-    inputs:
-      - normalized_selected_h5
-    outputs:
-      - id: embedding_tsv
-        path: "{dataset}_embedding.tsv"
-      - id: geodesics_h5
-        path: "{dataset}_geodesics.h5"
-    modules:
-      - id: dr-isomap
-        name: "sklearn (landmark) Isomap"
-        software_environment: "sklearn"
-        repository:
-          url: https://github.com/omni-scrna/sklearn
-          commit: 00d3afc
-          entrypoint: isomap
-        parameters:
-          - n_neighbors: [30]
-            n_components: 50
-            n_landmarks: 1000
-            landmark_method: min-max
-            random_seed: 42
-
       - id: pc-rcppml
         name: "RcppML truncated SVD (cpu)"
         software_environment: "rcppml"
@@ -329,7 +304,7 @@ stages:
           - d-annotation
         repository:
           url: https://github.com/omni-scrna/rcppml
-          commit: 28b8cb94d4c819d6b080a7f6f6f9dadec2c9458d
+          commit: 47a7dd4
           entrypoint: pca
         parameters:
           - solver: [lanczos, krylov]
@@ -355,7 +330,7 @@ stages:
           - nr-scanpy
         repository:
           url: https://github.com/omni-scrna/rcppml
-          commit: 28b8cb94d4c819d6b080a7f6f6f9dadec2c9458d
+          commit: 47a7dd4
           entrypoint: nmf
         parameters:
           - loss: [mse]
@@ -373,7 +348,7 @@ stages:
           - d-annotation
         repository:
           url: https://github.com/omni-scrna/rcppml
-          commit: 28b8cb94d4c819d6b080a7f6f6f9dadec2c9458d
+          commit: 47a7dd4
           entrypoint: pca
         parameters:
           - solver: [lanczos, krylov]
@@ -392,13 +367,38 @@ stages:
           - nr-scanpy
         repository:
           url: https://github.com/omni-scrna/rcppml
-          commit: 28b8cb94d4c819d6b080a7f6f6f9dadec2c9458d
+          commit: 47a7dd4
           entrypoint: nmf
         parameters:
           - loss: [mse]
             n_components: 50
             random_seed: 42
             backend: gpu
+
+  - id: ISOMAP
+    resources:
+      cores: 4
+    inputs:
+      - normalized_selected_h5
+    outputs:
+      - id: embedding_tsv
+        path: "{dataset}_embedding.tsv"
+      - id: geodesics_h5
+        path: "{dataset}_geodesics.h5"
+    modules:
+      - id: dr-isomap
+        name: "sklearn (landmark) Isomap"
+        software_environment: "sklearn"
+        repository:
+          url: https://github.com/omni-scrna/sklearn
+          commit: 00d3afc
+          entrypoint: isomap
+        parameters:
+          - n_neighbors: [30]
+            n_components: 50
+            n_landmarks: 1000
+            landmark_method: min-max
+            random_seed: 42
 
   - id: EMBED-M
     inputs:
