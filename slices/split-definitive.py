@@ -166,3 +166,33 @@ for ds in DATASETS:
            for l in one]
     pathlib.Path(f"slices/definitive-cpu-{ds}.yaml").write_text("\n".join(one))
 print("wrote per-dataset slices:", ", ".join(DATASETS))
+
+# --- rapids top-up ----------------------------------------------------------
+# cl-rapids was severed from the seed sweep by the CPU/GPU split: it lived in
+# the GPU half, which had no pc-scanpy or pc-scrapper, so it only ever attached
+# to the single deterministic pc-rapids embedding -- 1 PCA seed instead of 20,
+# no crossed design, and below pairwise.py's --min-runs.
+#
+# This slice re-attaches it: the CPU half's PCA stanzas verbatim (so the 40
+# existing embeddings are reused, not recomputed) with cl-rapids as the only
+# clusterer. CLUST-E and CLUSTBOUND are dropped -- already computed, and
+# leaving them out keeps the DAG small.
+CL_RAPIDS = [l for l in blocks(gpu) if l[0] == "cl-rapids"]
+_n, _s, _e = CL_RAPIDS[0]
+rapids_block = gpu[_s:_e]
+
+top = drop(list(cpu), {"cl-scanpy", "cl-scrapper", "cl-seurat"})
+for st in ("CLUST-E", "CLUSTBOUND"):
+    top = drop_stage(top, st)
+# put cl-rapids into the now-empty CLUST stage
+out, i = [], 0
+while i < len(top):
+    out.append(top[i])
+    if top[i].strip() == "modules:" and any(
+            l.strip() == "- id: CLUST" for l in top[max(0, i - 12):i]):
+        out.extend(rapids_block)
+    i += 1
+out = [l.replace("name: definitive-cpu", "name: definitive-rapids-topup")
+        .replace("id: definitive_cpu", "id: definitive_rapids_topup") for l in out]
+pathlib.Path("slices/definitive-rapids-topup.yaml").write_text("\n".join(out))
+print("wrote slices/definitive-rapids-topup.yaml")
