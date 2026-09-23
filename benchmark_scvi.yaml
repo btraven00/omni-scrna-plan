@@ -1,0 +1,264 @@
+name: split-stages-plan
+id: split_stages_plan
+description: "scVI slice: one count-likelihood dimred arm against the frozen PCA chain"
+benchmarker: "Mark Robinson <mark.robinson@mls.uzh.ch>"
+
+version: "0.0.3"
+api_version: "0.4.0"
+
+provenance:
+  canonical_url: https://raw.githubusercontent.com/omni-scrna/split-stages-plan/refs/heads/main/benchmark_conda.yaml
+
+software_backend: "conda"
+
+# Two chains on be1, differing only in how the matrix reaches the dimred stage:
+#
+#   nr-scanpy(log1pCP10k) -> fe-scanpy(seurat)          -> pc-scanpy(arpack, 50)
+#   nr-counts(counts)     -> fe-pearson(pearson_resid.) -> dr-scvi(n_latent 10)
+#
+# WHY THE SECOND CHAIN EXISTS: scVI's likelihood is negative-binomial over UMI
+# counts, so log1pCP10k is not a worse input for it, it is a wrong one. The PCA
+# stage's only input is `normalized_selected_h5`, and inputs are stage-level in
+# api 0.4.0, so the counts have to come down that same pipe -- hence a NORM arm
+# that is the identity. Adding `rawdata_h5ad` to the PCA stage instead would
+# have forced the flag onto all six sibling PCA modules or they die on an
+# unrecognised argument. dr-scvi refuses non-integer input, so a mis-set
+# exclude fails loudly instead of producing a plausible embedding.
+#
+# The excludes below keep the two chains from crossing; they are the whole
+# wiring, so check them first if the job count looks wrong (expect 2 PCA jobs).
+#
+# NOT A FAIR-DIMENSION COMPARISON: pc-scanpy keeps the 50 components every other
+# slice uses (so its half of the chain is cache-reuse, free), while dr-scvi uses
+# scVI's own default of 10 latent dimensions. If the question becomes "same k,
+# different method", match them first.
+#
+# Local checkouts until the branches are pushed -- needs --dirty.
+
+software_environments:
+  scanpy:
+    name: scanpy multi-module
+    conda: envs/scanpy.yml
+  py_conda:
+    name: Python conda env
+    conda: envs/py.yml
+  scrapper:
+    name: scrapper multi-module
+    conda: envs/scrapper.yml
+  metrics:
+    name: metrics env
+    conda: envs/metrics.yaml
+  omni_data:
+    name: omni-data fixture loader
+    conda: envs/omni-data-pinned.yml
+  scvi:
+    name: scvi-tools (CPU)
+    conda: envs/scvi.yml
+
+stages:
+  - id: DATA
+    outputs:
+      - id: rawdata_h5ad
+        path: "{dataset}.h5ad"
+      - id: rawdata_clusters_truth
+        path: "{dataset}.clusters_truth.tsv"
+      - id: rawdata_clusters_truth_num
+        path: "{dataset}.clusters_truth_num.txt"
+      - id: properties_info
+        path: "{dataset}_properties.yaml"
+    modules:
+      - id: be1-fixture
+        name: "be1 fixture via omni-data (remote directory)"
+        software_environment: omni_data
+        repository:
+          url: https://github.com/btraven00/omni-data
+          commit: 80611e83d13c8bd0d15fbc033c6a5e1a7900a0b8
+        parameters:
+          - uri: https://omnibenchmark.mls.uzh.ch/datasets/be1-fixture/
+            uri_type: directory
+
+  - id: FILT
+    inputs:
+      - rawdata_h5ad
+      - properties_info
+    outputs:
+      - id: filtered_cellids
+        path: "{dataset}_cellids.txt.gz"
+    modules:
+      - id: fi-scrapper
+        name: "scrapper-style filtering"
+        software_environment: "scrapper"
+        repository:
+          url: https://github.com/omni-scrna/scrapper
+          commit: 18843a7
+          entrypoint: filter
+
+  - id: NORM
+    inputs:
+      - rawdata_h5ad
+      - filtered_cellids
+    outputs:
+      - id: normalized_h5
+        path: "{dataset}_normalized.h5"
+    modules:
+      - id: nr-scanpy
+        name: "Python-based scRNA-seq normalization methods"
+        software_environment: "py_conda"
+        repository:
+          url: https://github.com/omni-scrna/scanpy
+          commit: 53eb292
+          entrypoint: normalize
+        parameters:
+          - flavor: ["log1pCP10k"]
+
+      # Identity. Not "no normalization by oversight": scVI models raw UMI
+      # counts and does its own library-size handling inside the model, so this
+      # IS its normalization arm.
+      - id: nr-counts
+        name: "counts passthrough (for count-likelihood methods)"
+        software_environment: "py_conda"
+        repository:
+          url: /home/b/lab/omni-scrna/split-stages-plan-modules/scanpy
+          commit: b69de73
+          entrypoint: normalize
+        parameters:
+          - flavor: ["counts"]
+
+  - id: FEAT
+    inputs:
+      - rawdata_h5ad
+      - normalized_h5
+      - filtered_cellids
+      - properties_info
+    outputs:
+      - id: normalized_selected_h5
+        path: "{dataset}_normalized_selected.h5"
+    modules:
+      - id: fe-scanpy
+        name: "scanpy-based gene selection"
+        software_environment: "scanpy"
+        exclude:
+          - nr-counts     # the seurat HVG flavor assumes log data
+        repository:
+          url: https://github.com/omni-scrna/scanpy
+          commit: 53eb292
+          entrypoint: feat-select
+        parameters:
+          - flavor: ["scanpy_seurat"]
+            number_selected: 2000
+
+      # Selects on rawdata's counts layer and then subsets whatever NORM
+      # produced -- so on the nr-counts chain the FEAT output is counts too,
+      # which is exactly what dr-scvi needs.
+      - id: fe-pearson
+        name: "scanpy gene selection on counts (Pearson residuals)"
+        software_environment: "scanpy"
+        exclude:
+          - nr-scanpy
+        repository:
+          url: https://github.com/omni-scrna/scanpy
+          commit: 53eb292
+          entrypoint: feat-select
+        parameters:
+          - flavor: ["pearson_residuals"]
+            number_selected: 2000
+
+  - id: PCA
+    resources:
+      cores: 8
+    inputs:
+      - normalized_selected_h5
+    outputs:
+      - id: pcas_tsv
+        path: "{dataset}_pcas.tsv"
+      - id: loadings_tsv
+        path: "{dataset}_loadings.tsv"
+    modules:
+      - id: pc-scanpy
+        name: "scanpy PCA"
+        software_environment: "scanpy"
+        exclude:
+          - nr-counts
+        repository:
+          url: https://github.com/omni-scrna/scanpy
+          commit: 53eb292
+          entrypoint: pca
+        parameters:
+          - solver: arpack
+            n_components: 50
+            random_seed: 42
+
+      # Same stage, not a PCA: a VAE whose latent representation is written as
+      # PC1..PC10 so NNG and the metrics stages read it unchanged (the same
+      # trick pc-rcppml-nmf uses). loadings_tsv comes out NaN -- a nonlinear
+      # decoder has no gene loadings; scvi.model.LinearSCVI would be a separate
+      # arm, not a flag on this one.
+      - id: dr-scvi
+        name: "scVI latent representation"
+        software_environment: "scvi"
+        exclude:
+          - nr-scanpy
+        repository:
+          url: /home/b/lab/omni-scrna/split-stages-plan-modules/scvi
+          commit: 0d7745a
+          entrypoint: dimred
+        parameters:
+          - n_latent: 10
+            max_epochs: 400
+            random_seed: 42
+
+  - id: NNG
+    resources:
+      cores: 4
+    inputs:
+      - pcas_tsv
+    outputs:
+      - id: neighbors_h5
+        path: "{dataset}_neighbors.h5"
+    modules:
+      - id: nn-scanpy
+        name: "scanpy KNN graph"
+        software_environment: "scanpy"
+        repository:
+          url: https://github.com/omni-scrna/scanpy
+          commit: 53eb292
+          entrypoint: knn
+        parameters:
+          - n_neighbors: 15
+            flavor: "umap"
+            random_seed: 42
+
+  - id: CLUST
+    inputs:
+      - neighbors_h5
+    outputs:
+      - id: clusters_tsv
+        path: "{dataset}_clusters.tsv"
+    modules:
+      - id: cl-scanpy
+        name: "scanpy Leiden clustering"
+        software_environment: "scanpy"
+        repository:
+          url: https://github.com/omni-scrna/scanpy
+          commit: 7cf3472
+          entrypoint: cluster
+        parameters:
+          - flavor: igraph
+            resolution: 1.0
+            random_seed: 42
+
+  - id: CLUST-M
+    inputs:
+      - clusters_tsv
+      - rawdata_clusters_truth
+    outputs:
+      - id: cluster_metrics
+        path: "{dataset}_cluster_metrics.json"
+    modules:
+      - id: cl-metrics-r
+        name: "Partition metrics in R"
+        software_environment: "metrics"
+        repository:
+          url: /home/b/lab/omni-scrna/split-stages-plan-modules/metrics
+          commit: 3657ae9
+          entrypoint: cluster-r

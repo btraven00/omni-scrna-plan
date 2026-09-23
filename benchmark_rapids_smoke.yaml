@@ -1,0 +1,202 @@
+# GENERATED, TEMPORARY -- do not commit. See description below.
+name: rapids-smoke
+id: rapids_smoke
+description: 'TEMP. Trimmed view of benchmark_conda.yaml: the be1 omni-data fixture, the minimum CPU path
+  to normalized_selected_h5, and only the rapids modules. Not a results plan -- regenerate from the canonical
+  yaml.'
+benchmarker: Mark Robinson <mark.robinson@mls.uzh.ch>
+version: 0.1.0
+api_version: 0.4.0
+software_backend: conda
+software_environments:
+  scrapper:
+    name: scrapper multi-module
+    conda: envs/scrapper.yml
+  omni_data:
+    name: omni-data fixture loader
+    conda: envs/omni-data.yml
+  rapids_singlecell:
+    name: rapids-singlecell (GPU)
+    conda: envs/rapids-singlecell.yml
+stages:
+- id: DATA
+  outputs:
+  - id: rawdata_h5ad
+    path: '{dataset}.h5ad'
+  - id: rawdata_clusters_truth
+    path: '{dataset}.clusters_truth.tsv'
+  - id: rawdata_clusters_truth_num
+    path: '{dataset}.clusters_truth_num.txt'
+  - id: properties_info
+    path: '{dataset}_properties.yaml'
+  modules:
+  - id: be1-fixture
+    name: be1 fixture via omni-data
+    software_environment: omni_data
+    repository:
+      url: https://github.com/btraven00/omni-data
+      commit: 80611e83d13c8bd0d15fbc033c6a5e1a7900a0b8
+    parameters:
+    - uri: https://omnibenchmark.mls.uzh.ch/datasets/be1-fixture/
+      uri_type: directory
+- id: FILT
+  inputs:
+  - rawdata_h5ad
+  - properties_info
+  outputs:
+  - id: filtered_cellids
+    path: '{dataset}_cellids.txt.gz'
+  - id: filtered_featureids
+    path: '{dataset}_featureids.txt.gz'
+  - id: size_factor_tsv
+    path: '{dataset}_size_factors.tsv'
+  modules:
+  - id: fi-scrapper
+    name: scrapper-style filtering
+    software_environment: scrapper
+    repository:
+      url: https://github.com/omni-scrna/scrapper
+      commit: 985389f
+      entrypoint: filter
+- id: NORM
+  inputs:
+  - rawdata_h5ad
+  - filtered_cellids
+  - filtered_featureids
+  outputs:
+  - id: normalized_h5
+    path: '{dataset}_normalized.h5'
+  modules:
+  - id: nr-scrapper
+    name: scrapper-based normalization
+    software_environment: scrapper
+    repository:
+      url: https://github.com/omni-scrna/scrapper
+      commit: 444a80b
+      entrypoint: normalize
+- id: FEAT
+  inputs:
+  - rawdata_h5ad
+  - normalized_h5
+  - filtered_cellids
+  - filtered_featureids
+  - properties_info
+  outputs:
+  - id: normalized_selected_h5
+    path: '{dataset}_normalized_selected.h5'
+  modules:
+  - id: fe-scrapper
+    name: scrapper-based gene selection
+    software_environment: scrapper
+    repository:
+      url: https://github.com/omni-scrna/scrapper
+      commit: 444a80b
+      entrypoint: select
+    parameters:
+    - number_selected: 2000
+- id: PCA
+  resources:
+    cores: 4
+  inputs:
+  - normalized_selected_h5
+  outputs:
+  - id: pcas_tsv
+    path: '{dataset}_pcas.tsv'
+  - id: loadings_tsv
+    path: '{dataset}_loadings.tsv'
+  modules:
+  - id: pc-rapids
+    name: rapids-singlecell PCA (GPU)
+    software_environment: rapids_singlecell
+    requires_capabilities:
+    - gpu
+    repository:
+      url: /home/b/lab/omni-scrna/split-stages-plan-modules/rapids-singlecell
+      commit: b84e28a
+      entrypoint: pca
+    parameters:
+    - solver:
+      - covariance-eigh
+      - randomized-halko
+      n_components: 50
+      random_seed: 42
+- id: NNG
+  inputs:
+  - pcas_tsv
+  outputs:
+  - id: neighbors_h5
+    path: '{dataset}_neighbors.h5'
+  modules:
+  - id: nn-rapids
+    name: rapids-singlecell KNN graph (GPU)
+    software_environment: rapids_singlecell
+    requires_capabilities:
+    - gpu
+    repository:
+      url: /home/b/lab/omni-scrna/split-stages-plan-modules/rapids-singlecell
+      commit: b84e28a
+      entrypoint: knn
+    parameters:
+    - n_neighbors: 15
+      random_seed: 42
+      flavor: rapids
+- id: CLUST
+  inputs:
+  - neighbors_h5
+  outputs:
+  - id: clusters_tsv
+    path: '{dataset}_clusters.tsv'
+  modules:
+  - id: cl-rapids
+    name: rapids-singlecell graph clustering (GPU)
+    software_environment: rapids_singlecell
+    requires_capabilities:
+    - gpu
+    repository:
+      url: /home/b/lab/omni-scrna/split-stages-plan-modules/rapids-singlecell
+      commit: b84e28a
+      entrypoint: cluster
+    parameters:
+    - method: rapids-leiden
+      resolution:
+      - 0.5
+      - 1.0
+      random_seed: 42
+    - method: rapids-louvain
+      resolution:
+      - 0.5
+      - 1.0
+- id: CLUST-E
+  inputs:
+  - pcas_tsv
+  outputs:
+  - id: clusters_embedding_tsv
+    path: '{dataset}_clusters.tsv'
+  modules:
+  - id: cl-rapids-embed
+    name: rapids-singlecell embedding clustering (GPU)
+    software_environment: rapids_singlecell
+    requires_capabilities:
+    - gpu
+    repository:
+      url: /home/b/lab/omni-scrna/split-stages-plan-modules/rapids-singlecell
+      commit: b84e28a
+      entrypoint: cluster_embedding
+    parameters:
+    - method: rapids-kmeans
+      n_clusters:
+      - 10
+      - 20
+      random_seed: 42
+    - method: rapids-hdbscan
+      min_samples:
+      - 10
+      - 30
+      min_cluster_size: 25
+    - method: rapids-dbscan
+      eps:
+      - 10
+      - 14
+      min_samples:
+      - 10
+      - 30

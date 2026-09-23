@@ -1,0 +1,208 @@
+name: split-stages-plan
+id: split_stages_plan
+description: "tenx ladder 20k rung: frozen chain, 3 cell-order permutations, Leiden vs Markov Stability"
+benchmarker: "Mark Robinson <mark.robinson@mls.uzh.ch>"
+
+version: "0.0.3"
+api_version: "0.4.0"
+
+provenance:
+  canonical_url: https://raw.githubusercontent.com/omni-scrna/split-stages-plan/refs/heads/main/benchmark_conda.yaml
+
+software_backend: "conda"
+
+# Same frozen chain as benchmark_seeds_be1.yaml, one rung up the tenx ladder
+# (20,000 cells instead of 1,715), to put cl-pgs' cost on a real scaling curve.
+#
+# * NO CLUST-M. The ladder rungs carry no labels -- tenx-0020k.clusters_truth.tsv
+#   is a bare header and properties says `labels_var: null` -- so there is
+#   nothing for cl-metrics-r to score against. Order-stability comes from the
+#   partitions themselves (pairwise ARI across permutation_seed), which needs no
+#   truth.
+# * cl-pgs runs `linearized`, NOT the `continuous_normalized` of the be1 slice.
+#   Measured on be1: continuous_normalized's quality matrix reaches 91% density
+#   at the top of the scan and the spectral path needs a dense n x n eigh, which
+#   at 20k is a 3.2GB matrix per copy with n_workers copies in flight. linearized
+#   holds the input's sparsity at every scale. The trade is real and stated:
+#   linearized Markov Stability at time t IS configuration-null modularity at
+#   resolution 1/t, so this arm is closer to cl-scanpy than the be1 arm is --
+#   what it still adds over cl-scanpy is the NVI scan choosing the scale.
+# * n_scale x n_tries at 20 x 25 to match the be1 slice. See that plan's note:
+#   this setting does NOT give a same-graph control of 1.0000, so treat the
+#   spread here as cost-and-mechanics, not as a stability measurement.
+
+software_environments:
+  scanpy:
+    name: scanpy multi-module
+    conda: envs/scanpy.yml
+  py_conda:
+    name: Python conda env
+    conda: envs/py.yml
+  scrapper:
+    name: scrapper multi-module
+    conda: envs/scrapper.yml
+  omni_data:
+    name: omni-data fixture loader
+    conda: envs/omni-data.yml
+  pgs:
+    name: PyGenStability (Markov Stability)
+    conda: envs/pgs.yml
+
+stages:
+  - id: DATA
+    outputs:
+      - id: rawdata_h5ad
+        path: "{dataset}.h5ad"
+      - id: rawdata_clusters_truth
+        path: "{dataset}.clusters_truth.tsv"
+      - id: rawdata_clusters_truth_num
+        path: "{dataset}.clusters_truth_num.txt"
+      - id: properties_info
+        path: "{dataset}_properties.yaml"
+    modules:
+      - id: tenx-0020k
+        name: "tenx brain ladder, 20k rung, via omni-data file://"
+        software_environment: omni_data
+        repository:
+          url: https://github.com/btraven00/omni-data
+          commit: eb4d368b5e83b26389e6047dd8bad6badede78f8
+        parameters:
+          - uri: file:///home/b/phd/data/tenx_ladder/tenx-0020k
+
+  - id: FILT
+    inputs:
+      - rawdata_h5ad
+      - properties_info
+    outputs:
+      - id: filtered_cellids
+        path: "{dataset}_cellids.txt.gz"
+    modules:
+      - id: fi-scrapper
+        name: "scrapper-style filtering"
+        software_environment: "scrapper"
+        repository:
+          url: https://github.com/omni-scrna/scrapper
+          commit: 18843a7
+          entrypoint: filter
+
+  - id: NORM
+    inputs:
+      - rawdata_h5ad
+      - filtered_cellids
+    outputs:
+      - id: normalized_h5
+        path: "{dataset}_normalized.h5"
+    modules:
+      - id: nr-scanpy
+        name: "Python-based scRNA-seq normalization methods"
+        software_environment: "py_conda"
+        repository:
+          url: https://github.com/omni-scrna/scanpy
+          commit: 53eb292
+          entrypoint: normalize
+        parameters:
+          - flavor: ["log1pCP10k"]
+
+  - id: FEAT
+    inputs:
+      - rawdata_h5ad
+      - normalized_h5
+      - filtered_cellids
+      - properties_info
+    outputs:
+      - id: normalized_selected_h5
+        path: "{dataset}_normalized_selected.h5"
+    modules:
+      - id: fe-scanpy
+        name: "scanpy-based gene selection"
+        software_environment: "scanpy"
+        repository:
+          url: https://github.com/omni-scrna/scanpy
+          commit: 53eb292
+          entrypoint: feat-select
+        parameters:
+          - flavor: ["scanpy_seurat"]
+            number_selected: 2000
+
+  - id: PCA
+    resources:
+      cores: 8
+    inputs:
+      - normalized_selected_h5
+    outputs:
+      - id: pcas_tsv
+        path: "{dataset}_pcas.tsv"
+      - id: loadings_tsv
+        path: "{dataset}_loadings.tsv"
+    modules:
+      - id: pc-scanpy
+        name: "scanpy PCA"
+        software_environment: "scanpy"
+        repository:
+          url: https://github.com/omni-scrna/scanpy
+          commit: 53eb292
+          entrypoint: pca
+        parameters:
+          - solver: arpack
+            n_components: 50
+            random_seed: 42
+
+  - id: NNG
+    resources:
+      cores: 4
+    inputs:
+      - pcas_tsv
+    outputs:
+      - id: neighbors_h5
+        path: "{dataset}_neighbors.h5"
+    modules:
+      # 20,000 cells is ABOVE scanpy's 4096-cell exact-backend threshold, so
+      # unlike be1 the ANN seed is live here. It is frozen at 42 anyway: the
+      # axis under test is cell ORDER.
+      - id: nn-scanpy
+        name: "scanpy KNN graph"
+        software_environment: "scanpy"
+        repository:
+          url: /home/b/lab/omni-scrna/split-stages-plan-modules/scanpy
+          commit: 28746ef
+          entrypoint: knn
+        parameters:
+          - n_neighbors: 15
+            flavor: "umap"
+            random_seed: 42
+            permutation_seed: [0, 1, 2]
+
+  - id: CLUST
+    resources:
+      cores: 16
+    inputs:
+      - neighbors_h5
+    outputs:
+      - id: clusters_tsv
+        path: "{dataset}_clusters.tsv"
+    modules:
+      - id: cl-scanpy
+        name: "scanpy Leiden clustering"
+        software_environment: "scanpy"
+        repository:
+          url: https://github.com/omni-scrna/scanpy
+          commit: 7cf3472
+          entrypoint: cluster
+        parameters:
+          - flavor: igraph
+            resolution: 1.0
+            random_seed: 42
+      - id: cl-pgs
+        name: "PyGenStability (multiscale Markov Stability)"
+        software_environment: "pgs"
+        repository:
+          url: /home/b/lab/omni-scrna/split-stages-plan-modules/pygenstability
+          commit: 4b9fe2b
+          entrypoint: cluster
+        parameters:
+          - constructor: linearized
+            min_scale: -1
+            max_scale: 0.75
+            n_scale: 20
+            n_tries: 25
+            scale_selection: robust

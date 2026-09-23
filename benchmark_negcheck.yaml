@@ -1,0 +1,152 @@
+name: split-stages-plan
+id: split_stages_plan
+description: This benchmark lays out stages for each step of an scRNA-seq pipeline
+benchmarker: Mark Robinson <mark.robinson@mls.uzh.ch>
+version: 0.0.3
+api_version: 0.4.0
+provenance:
+  canonical_url: https://raw.githubusercontent.com/omni-scrna/split-stages-plan/refs/heads/main/benchmark_conda.yaml
+storage:
+  api: S3
+  endpoint: https://omnibenchmark.mls.uzh.ch
+  bucket_name: split-stages-plan
+software_backend: conda
+software_environments:
+  r_conda:
+    name: R conda env (some packages self built)
+    conda: envs/r.yml
+  scanpy:
+    name: scanpy multi-module
+    conda: envs/scanpy.yml
+  scrapper:
+    name: scrapper multi-module
+    conda: envs/scrapper.yml
+  seurat:
+    name: seurat multi-module
+    conda: envs/seurat.yml
+  metrics:
+    name: metrics env
+    conda: envs/metrics.yaml
+  py_conda:
+    name: Python conda env
+    conda: envs/py.yml
+  integrate:
+    name: integration env
+    conda: envs/integrate.yml
+  annotate:
+    name: annotate env
+    conda: envs/annotate.yml
+  integrate-py:
+    name: integration env
+    conda: envs/integrate-py.yml
+  count-factor:
+    name: count-factor
+    conda: envs/cntfct.yml
+  rcppml:
+    name: RcppML env (r-rcppml 1.0.0 from the almost-conductor channel; ships RcppML_gpu.so)
+    conda: envs/rcppml.yml
+  omni_data:
+    name: omni-data fixture loader
+    conda: envs/omni-data-pinned.yml
+stages:
+- id: DATA
+  outputs:
+  - id: rawdata_h5ad
+    path: '{dataset}.h5ad'
+  - id: rawdata_clusters_truth
+    path: '{dataset}.clusters_truth.tsv'
+  - id: rawdata_clusters_truth_num
+    path: '{dataset}.clusters_truth_num.txt'
+  - id: properties_info
+    path: '{dataset}_properties.yaml'
+  modules:
+  - id: be1-fixture
+    name: be1 fixture via omni-data
+    software_environment: omni_data
+    repository:
+      url: https://github.com/btraven00/omni-data
+      commit: 80611e83d13c8bd0d15fbc033c6a5e1a7900a0b8
+    parameters:
+    - uri: https://omnibenchmark.mls.uzh.ch/datasets/be1-fixture/
+      uri_type: directory
+- id: FILT
+  inputs:
+  - rawdata_h5ad
+  - properties_info
+  outputs:
+  - id: filtered_cellids
+    path: '{dataset}_cellids.txt.gz'
+  - id: filtered_featureids
+    path: '{dataset}_featureids.txt.gz'
+  - id: size_factor_tsv
+    path: '{dataset}_size_factors.tsv'
+  modules:
+  - id: fi-scrapper
+    name: scrapper-style filtering
+    software_environment: scrapper
+    repository:
+      url: https://github.com/omni-scrna/scrapper
+      commit: 985389f
+      entrypoint: filter
+- id: NORM
+  inputs:
+  - rawdata_h5ad
+  - filtered_cellids
+  - filtered_featureids
+  outputs:
+  - id: normalized_h5
+    path: '{dataset}_normalized.h5'
+  modules:
+  - id: nr-scanpy
+    name: Python-based scRNA-seq normalization methods
+    software_environment: py_conda
+    repository:
+      url: https://github.com/omni-scrna/scanpy
+      commit: b5c6855
+      entrypoint: normalize
+    parameters:
+    - flavor:
+      - analyticalPearsonResiduals
+- id: FEAT
+  inputs:
+  - rawdata_h5ad
+  - normalized_h5
+  - filtered_cellids
+  - filtered_featureids
+  - properties_info
+  outputs:
+  - id: normalized_selected_h5
+    path: '{dataset}_normalized_selected.h5'
+  modules:
+  - id: fe-scrapper
+    name: scrapper-based gene selection
+    software_environment: scrapper
+    repository:
+      url: https://github.com/omni-scrna/scrapper
+      commit: 444a80b
+      entrypoint: select
+    parameters:
+    - number_selected: 2000
+- id: PCA
+  resources:
+    cores: 4
+  inputs:
+  - normalized_selected_h5
+  outputs:
+  - id: pcas_tsv
+    path: '{dataset}_pcas.tsv'
+  - id: loadings_tsv
+    path: '{dataset}_loadings.tsv'
+  modules:
+  - id: pc-rcppml-nmf
+    name: RcppML NMF
+    software_environment: rcppml
+    repository:
+      url: https://github.com/btraven00/rcppml
+      commit: 28b8cb94d4c819d6b080a7f6f6f9dadec2c9458d
+      entrypoint: nmf
+    parameters:
+    - loss:
+      - mse
+      n_components: 50
+      random_seed: 42

@@ -1,0 +1,328 @@
+name: split-stages-plan
+id: split_stages_plan
+description: This benchmark lays out stages for each step of an scRNA-seq pipeline
+benchmarker: Mark Robinson <mark.robinson@mls.uzh.ch>
+version: 0.0.3
+api_version: 0.4.0
+provenance:
+  canonical_url: https://raw.githubusercontent.com/omni-scrna/split-stages-plan/refs/heads/main/benchmark_conda.yaml
+storage:
+  api: S3
+  endpoint: https://omnibenchmark.mls.uzh.ch
+  bucket_name: split-stages-plan
+software_backend: conda
+software_environments:
+  r_conda:
+    name: R conda env (some packages self built)
+    conda: envs/r.yml
+  scanpy:
+    name: scanpy multi-module
+    conda: envs/scanpy.yml
+  scrapper:
+    name: scrapper multi-module
+    conda: envs/scrapper.yml
+  seurat:
+    name: seurat multi-module
+    conda: envs/seurat.yml
+  metrics:
+    name: metrics env
+    conda: envs/metrics.yaml
+  py_conda:
+    name: Python conda env
+    conda: envs/py.yml
+  integrate:
+    name: integration env
+    conda: envs/integrate.yml
+  annotate:
+    name: annotate env
+    conda: envs/annotate.yml
+  integrate-py:
+    name: integration env
+    conda: envs/integrate-py.yml
+  count-factor:
+    name: count-factor
+    conda: envs/cntfct.yml
+  rcppml:
+    name: RcppML env (r-rcppml 1.0.0 from the almost-conductor channel; ships RcppML_gpu.so)
+    conda: envs/rcppml.yml
+  omni_data:
+    name: omni-data fixture loader
+    conda: envs/omni-data-pinned.yml
+stages:
+- id: DATA
+  outputs:
+  - id: rawdata_h5ad
+    path: '{dataset}.h5ad'
+  - id: rawdata_clusters_truth
+    path: '{dataset}.clusters_truth.tsv'
+  - id: rawdata_clusters_truth_num
+    path: '{dataset}.clusters_truth_num.txt'
+  - id: properties_info
+    path: '{dataset}_properties.yaml'
+  modules:
+  - id: be1-fixture
+    name: be1 fixture via omni-data
+    software_environment: omni_data
+    repository:
+      url: https://github.com/btraven00/omni-data
+      commit: 80611e83d13c8bd0d15fbc033c6a5e1a7900a0b8
+    parameters:
+    - uri: https://omnibenchmark.mls.uzh.ch/datasets/be1-fixture/
+      uri_type: directory
+- id: FILT
+  inputs:
+  - rawdata_h5ad
+  - properties_info
+  outputs:
+  - id: filtered_cellids
+    path: '{dataset}_cellids.txt.gz'
+  - id: filtered_featureids
+    path: '{dataset}_featureids.txt.gz'
+  - id: size_factor_tsv
+    path: '{dataset}_size_factors.tsv'
+  modules:
+  - id: fi-scrapper
+    name: scrapper-style filtering
+    software_environment: scrapper
+    repository:
+      url: https://github.com/omni-scrna/scrapper
+      commit: 985389f
+      entrypoint: filter
+      commit: 985389f
+      entrypoint: filter
+- id: NORM
+  inputs:
+  - rawdata_h5ad
+  - filtered_cellids
+  - filtered_featureids
+  outputs:
+  - id: normalized_h5
+    path: '{dataset}_normalized.h5'
+  modules:
+  - id: nr-scrapper
+    name: scrapper-based normalization
+    software_environment: scrapper
+    repository:
+      url: https://github.com/omni-scrna/scrapper
+      commit: 444a80b
+      entrypoint: normalize
+- id: FEAT
+  inputs:
+  - rawdata_h5ad
+  - normalized_h5
+  - filtered_cellids
+  - filtered_featureids
+  - properties_info
+  outputs:
+  - id: normalized_selected_h5
+    path: '{dataset}_normalized_selected.h5'
+  modules:
+  - id: fe-scrapper
+    name: scrapper-based gene selection
+    software_environment: scrapper
+    repository:
+      url: https://github.com/omni-scrna/scrapper
+      commit: 444a80b
+      entrypoint: select
+    parameters:
+    - number_selected: 2000
+- id: PCA
+  resources:
+    cores: 4
+  inputs:
+    - normalized_selected_h5
+  outputs:
+    - id: pcas_tsv
+      path: "{dataset}_pcas.tsv"
+    - id: loadings_tsv
+      path: "{dataset}_loadings.tsv"
+  modules:
+    - id: pc-scanpy
+      name: "scanpy PCA"
+      software_environment: "scanpy"
+      exclude:
+        - d-feat-sel
+        - d-annotation
+      repository:
+        url: https://github.com/omni-scrna/scanpy
+        commit: 53eb292
+        entrypoint: pca
+      parameters:
+        - solver: [arpack, randomized]
+          n_components: 50
+          random_seed: 42
+    - id: pc-scrapper
+      name: "scrapper PCA"
+      software_environment: "scrapper"
+      exclude:
+        - d-feat-sel
+        - d-annotation
+      repository:
+        url: https://github.com/omni-scrna/scrapper
+        commit: 18843a7
+        entrypoint: pca
+      parameters:
+        - solver: [exact, irlba, random]
+          n_components: 50
+          random_seed: 42
+
+    - id: pc-rcppml
+      name: "RcppML truncated SVD (cpu)"
+      software_environment: "rcppml"
+      exclude:
+        - d-feat-sel
+        - d-annotation
+      repository:
+        url: https://github.com/btraven00/rcppml
+        commit: 28b8cb94d4c819d6b080a7f6f6f9dadec2c9458d
+        entrypoint: pca
+      parameters:
+        - solver: [lanczos, krylov]
+          n_components: 50
+          random_seed: 42
+
+    # Same stage, not strictly a PCA: nmf reads and writes the same
+    # with factors named PC1..PCk so the downstream metrics and validators can read
+    # it unchanged.
+    # But, NMF is only defined on non-negative input; needs extra excludes.
+    - id: pc-rcppml-nmf
+      name: "RcppML NMF (cpu)"
+      software_environment: "rcppml"
+      exclude:
+        - d-feat-sel
+        - d-annotation
+        # NMF is only defined on non-negative input, 
+        # That rules out the Pearson-residual normalisations:
+        # nr-seurat (sctransformv2) and nr-scanpy's
+        # analyticalPearsonResiduals. 
+        # TODO: Split nr-scanpy's two flavors into separate module ids to get the log one.
+        - nr-seurat
+        - nr-scanpy
+      repository:
+        url: https://github.com/btraven00/rcppml
+        commit: 28b8cb94d4c819d6b080a7f6f6f9dadec2c9458d
+        entrypoint: nmf
+      parameters:
+        - loss: [mse]
+          n_components: 50
+          random_seed: 42
+
+    # GPU variants.
+    # We split so that the DAG can run on GPU-less hosts
+    - id: pc-rcppml-gpu
+      name: "RcppML truncated SVD (GPU)"
+      software_environment: "rcppml"
+      requires_capabilities: [gpu]
+      exclude:
+        - d-feat-sel
+        - d-annotation
+      repository:
+        url: https://github.com/btraven00/rcppml
+        commit: 28b8cb94d4c819d6b080a7f6f6f9dadec2c9458d
+        entrypoint: pca
+      parameters:
+        - solver: [lanczos, krylov]
+          n_components: 50
+          random_seed: 42
+          backend: gpu
+
+    - id: pc-rcppml-nmf-gpu
+      name: "RcppML NMF (GPU)"
+      requires_capabilities: [gpu]
+      software_environment: "rcppml"
+      exclude:
+        - d-feat-sel
+        - d-annotation
+        - nr-seurat
+        - nr-scanpy
+      repository:
+        url: https://github.com/btraven00/rcppml
+        commit: 28b8cb94d4c819d6b080a7f6f6f9dadec2c9458d
+        entrypoint: nmf
+      parameters:
+        - loss: [mse]
+          n_components: 50
+          random_seed: 42
+          backend: gpu
+
+- id: EMBED-M
+  inputs:
+  - pcas_tsv
+  - rawdata_clusters_truth
+  outputs:
+  - id: embedding_metrics
+    path: '{dataset}_embedding_metrics.json'
+  modules:
+  - id: em-metrics-r
+    name: Embedding metrics in R
+    software_environment: metrics
+    repository:
+      url: https://github.com/omni-scrna/metrics
+      commit: 4cfb831
+      entrypoint: embedding-r
+- id: NNG
+  inputs:
+  - pcas_tsv
+  outputs:
+  - id: neighbors_h5
+    path: '{dataset}_neighbors.h5'
+  modules:
+  - id: nn-scanpy
+    name: scanpy KNN graph
+    software_environment: scanpy
+    repository:
+      url: https://github.com/omni-scrna/scanpy
+      commit: 53eb292
+      entrypoint: knn
+    parameters:
+    - n_neighbors: 15
+      random_seed: 42
+      flavor: umap
+- id: GRAPH-M
+  inputs:
+  - neighbors_h5
+  - rawdata_clusters_truth
+  outputs:
+  - id: graph_metrics
+    path: '{dataset}_graph_metrics.json'
+  modules:
+  - id: nn-metrics-r
+    name: Graph metrics in R
+    software_environment: metrics
+    repository:
+      url: https://github.com/omni-scrna/metrics
+      commit: 646f1e4
+      entrypoint: graph-r
+- id: CLUST
+  inputs:
+  - neighbors_h5
+  outputs:
+  - id: clusters_tsv
+    path: '{dataset}_clusters.tsv'
+  modules:
+  - id: cl-scanpy
+    name: scanpy Leiden clustering
+    software_environment: scanpy
+    repository:
+      url: https://github.com/omni-scrna/scanpy
+      commit: 7cf3472
+      entrypoint: cluster
+    parameters:
+    - flavor: igraph
+      resolution: [0.4, 0.6, 0.8, 1.0, 1.2]
+      random_seed: [42, 7, 13, 101, 2024]
+- id: CLUST-M
+  inputs:
+  - clusters_tsv
+  - rawdata_clusters_truth
+  outputs:
+  - id: cluster_metrics
+    path: '{dataset}_cluster_metrics.json'
+  modules:
+  - id: cl-metrics-r
+    name: Partition metrics in R
+    software_environment: metrics
+    repository:
+      url: https://github.com/omni-scrna/metrics
+      commit: 257c952
+      entrypoint: cluster-r

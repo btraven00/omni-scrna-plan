@@ -1,0 +1,250 @@
+name: split-stages-plan
+id: split_stages_plan
+description: "tenx ladder 5k rung, EXACT kNN: frozen graph, 3 cell-order permutations, Leiden vs Markov Stability"
+benchmarker: "Mark Robinson <mark.robinson@mls.uzh.ch>"
+
+version: "0.0.3"
+api_version: "0.4.0"
+
+provenance:
+  canonical_url: https://raw.githubusercontent.com/omni-scrna/split-stages-plan/refs/heads/main/benchmark_conda.yaml
+
+software_backend: "conda"
+
+# The 20k rung with its three confounds removed. There, cl-pgs read perm-ARI
+# 0.6152 against cl-scanpy's 0.7735 -- a number that cannot be attributed,
+# because (a) the kNN graph itself moved with cell order, (b) the arm's own
+# Louvain restarts disagreed as much as the permutations did, and (c) 17.5h per
+# job made any repeat unaffordable. One change each:
+#
+# * NNG `transformer: sklearn` -- EXACT kNN. scanpy picks its backend by size
+#   (neighbors/__init__.py: `n_obs < 4096` -> brute force, else pynndescent), and
+#   the approximate one is order-dependent: re-sorted into common barcode order,
+#   the three 20k graphs shared only 92% of their edges, while be1 (1,715 cells,
+#   under the threshold) was BIT-IDENTICAL across permutations. Forcing exact
+#   here makes the graph a constant again, so what is left is the clusterer's
+#   own order sensitivity -- and unlike be1, at a size where the default
+#   pipeline would NOT have been exact. Verify it, do not assume: exact ties can
+#   still break by index order.
+# * cl-pgs `n_tries: 25 -> 100`. At 20k the scan logged NVI 0.29-0.31 at EVERY
+#   scale (be1: ~0.04), i.e. 25 restarts disagreed about as much as the
+#   permutations did. be1 needed 100 for a same-graph control of 1.0000.
+# * 5,000 cells instead of 20,000. cl-pgs' cost goes as ~n^2.9 (59s at 1,715 ->
+#   62,947s at 19,696), so this rung should run in minutes, not a shift.
+#   n after filtering is ~4,925 -- still ABOVE 4096, which is the point.
+#
+# * `n_workers: 16` is in the parameter block on purpose: the module's argparse
+#   default of 4 WINS over `resources.cores`, and that is what the 20k run
+#   silently used. It is a ~4x speedup, and it is what pays for n_tries 100.
+#
+# * NO CLUST-M. The ladder rungs carry no labels (`labels_var: null`), so there
+#   is nothing for cl-metrics-r to score. Order-stability comes from the
+#   partitions themselves (pairwise ARI across permutation_seed): perm_stability.py
+# * The same-graph control has no ob expression (two identical parameter sets
+#   collapse to one hash). Run cluster.py by hand, twice, on the seed-0 graph.
+# * cl-pgs runs `linearized`, as at 20k: continuous_normalized's quality matrix
+#   densifies with Markov time and the spectral path needs a dense n x n eigh.
+#   The trade is stated -- linearized Markov Stability at time t IS
+#   configuration-null modularity at resolution 1/t; what the arm still adds
+#   over cl-scanpy is the NVI scan choosing the scale.
+
+software_environments:
+  scanpy:
+    name: scanpy multi-module
+    conda: envs/scanpy.yml
+  py_conda:
+    name: Python conda env
+    conda: envs/py.yml
+  scrapper:
+    name: scrapper multi-module
+    conda: envs/scrapper.yml
+  omni_data:
+    name: omni-data fixture loader
+    conda: envs/omni-data.yml
+  pgs:
+    name: PyGenStability (Markov Stability)
+    conda: envs/pgs.yml
+
+stages:
+  - id: DATA
+    outputs:
+      - id: rawdata_h5ad
+        path: "{dataset}.h5ad"
+      - id: rawdata_clusters_truth
+        path: "{dataset}.clusters_truth.tsv"
+      - id: rawdata_clusters_truth_num
+        path: "{dataset}.clusters_truth_num.txt"
+      - id: properties_info
+        path: "{dataset}_properties.yaml"
+    modules:
+      - id: tenx-0005k
+        name: "tenx brain ladder, 5k rung, via omni-data file://"
+        software_environment: omni_data
+        repository:
+          url: https://github.com/btraven00/omni-data
+          commit: eb4d368b5e83b26389e6047dd8bad6badede78f8
+        parameters:
+          - uri: file:///home/b/phd/data/tenx_ladder/tenx-0005k
+
+  - id: FILT
+    inputs:
+      - rawdata_h5ad
+      - properties_info
+    outputs:
+      - id: filtered_cellids
+        path: "{dataset}_cellids.txt.gz"
+    modules:
+      - id: fi-scrapper
+        name: "scrapper-style filtering"
+        software_environment: "scrapper"
+        repository:
+          url: https://github.com/omni-scrna/scrapper
+          commit: 18843a7
+          entrypoint: filter
+
+  - id: NORM
+    inputs:
+      - rawdata_h5ad
+      - filtered_cellids
+    outputs:
+      - id: normalized_h5
+        path: "{dataset}_normalized.h5"
+    modules:
+      - id: nr-scanpy
+        name: "Python-based scRNA-seq normalization methods"
+        software_environment: "py_conda"
+        repository:
+          url: https://github.com/omni-scrna/scanpy
+          commit: 53eb292
+          entrypoint: normalize
+        parameters:
+          - flavor: ["log1pCP10k"]
+
+  - id: FEAT
+    inputs:
+      - rawdata_h5ad
+      - normalized_h5
+      - filtered_cellids
+      - properties_info
+    outputs:
+      - id: normalized_selected_h5
+        path: "{dataset}_normalized_selected.h5"
+    modules:
+      - id: fe-scanpy
+        name: "scanpy-based gene selection"
+        software_environment: "scanpy"
+        repository:
+          url: https://github.com/omni-scrna/scanpy
+          commit: 53eb292
+          entrypoint: feat-select
+        parameters:
+          - flavor: ["scanpy_seurat"]
+            number_selected: 2000
+
+  - id: PCA
+    resources:
+      cores: 8
+    inputs:
+      - normalized_selected_h5
+    outputs:
+      - id: pcas_tsv
+        path: "{dataset}_pcas.tsv"
+      - id: loadings_tsv
+        path: "{dataset}_loadings.tsv"
+    modules:
+      - id: pc-scanpy
+        name: "scanpy PCA"
+        software_environment: "scanpy"
+        repository:
+          url: https://github.com/omni-scrna/scanpy
+          commit: 53eb292
+          entrypoint: pca
+        parameters:
+          - solver: arpack
+            n_components: 50
+            random_seed: 42
+
+  - id: NNG
+    resources:
+      cores: 4
+    inputs:
+      - pcas_tsv
+    outputs:
+      - id: neighbors_h5
+        path: "{dataset}_neighbors.h5"
+    modules:
+      # transformer: sklearn pins the EXACT backend, which scanpy would only
+      # have chosen below 4096 cells. random_seed then has nothing to move --
+      # it stays 42 so the parameter set reads the same as the other slices.
+      - id: nn-scanpy
+        name: "scanpy KNN graph"
+        software_environment: "scanpy"
+        repository:
+          url: /home/b/lab/omni-scrna/split-stages-plan-modules/scanpy
+          commit: 28746ef
+          entrypoint: knn
+        parameters:
+          - n_neighbors: 15
+            flavor: "umap"
+            transformer: "sklearn"
+            random_seed: 42
+            permutation_seed: [0, 1, 2]
+
+  - id: CLUST
+    resources:
+      cores: 16
+    inputs:
+      - neighbors_h5
+    outputs:
+      - id: clusters_tsv
+        path: "{dataset}_clusters.tsv"
+    modules:
+      - id: cl-scanpy
+        name: "scanpy Leiden clustering"
+        software_environment: "scanpy"
+        repository:
+          url: https://github.com/omni-scrna/scanpy
+          commit: 7cf3472
+          entrypoint: cluster
+        parameters:
+          - flavor: igraph
+            resolution: 1.0
+            random_seed: 42
+      # The same arm with the scale SELECTOR removed. `robust` is argmin NVI over
+      # the robust scales, and four runs on one identical graph picked k =
+      # 70/70/53/45 (pairwise ARI 0.6999) -- as unstable as the permutations, so
+      # cl-pgs measures its own selector, not cell order. Two runs that landed on
+      # the same scale agreed at ARI 1.0000, which is why pinning the index is the
+      # fix and more restarts is not. idx 10 (t=0.8338) is where the scan sits at
+      # k~20, i.e. matched to cl-scanpy without tuning either arm to the other.
+      - id: cl-pgs-fx
+        name: "PyGenStability at a FIXED scale (no selection)"
+        software_environment: "pgs"
+        repository:
+          url: /home/b/lab/omni-scrna/split-stages-plan-modules/pygenstability
+          commit: 99df3d0
+          entrypoint: cluster
+        parameters:
+          - constructor: linearized
+            min_scale: -1
+            max_scale: 0.75
+            n_scale: 20
+            n_tries: 100
+            n_workers: 16
+            scale_index: 10
+            scale_selection: robust
+      - id: cl-pgs
+        name: "PyGenStability (multiscale Markov Stability)"
+        software_environment: "pgs"
+        repository:
+          url: /home/b/lab/omni-scrna/split-stages-plan-modules/pygenstability
+          commit: 4b9fe2b
+          entrypoint: cluster
+        parameters:
+          - constructor: linearized
+            min_scale: -1
+            max_scale: 0.75
+            n_scale: 20
+            n_tries: 100
+            n_workers: 16
+            scale_selection: robust
