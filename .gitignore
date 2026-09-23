@@ -60,3 +60,10 @@ Thumbs.db
 benchmark_ci.yaml
 out_ci/
 benchmark_minimal.yaml
+
+# spike run outputs
+out_*/
+results_sweep/
+scshc-eval/data/
+scshc-eval/out/
+scshc-eval/out_order/
