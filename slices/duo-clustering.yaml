@@ -1,5 +1,5 @@
-name: clustering-bounds
-id: clustering_bounds
+name: duo-clustering
+id: duo_clustering
 description: >
   Clustering slice with its own floor and ceiling. A dummy dataset through the
   minimum path to an embedding, then two clusterers and two bounds, all four
@@ -70,51 +70,100 @@ stages:
       - id: properties_info
         path: "{dataset}_properties.yaml"
     modules:
-      # be1-subset dropped: the screen put it at 3.7% headroom, i.e. Leiden is
-      # already at its oracle and it cannot discriminate methods however much it
-      # is resampled. tm-droplet replaces it at 23.9% headroom (55k cells, 55
-      # labels, ceiling 0.968, best probe 0.737).
-      - id: tm-droplet
-        name: "Tabula Muris droplet (55k cells, 55 labels)"
-        software_environment: omni_data
-        repository:
-          url: https://github.com/btraven00/omni-data
-          commit: 80611e83d13c8bd0d15fbc033c6a5e1a7900a0b8
-        parameters:
-          - uri: file:///home/b/phd/data/tm_omnidata/tm-droplet/
-            uri_type: directory
-      # tm-facs: the non-circular arm. pancreas' labels are `clusters.truth`,
-      # i.e. labels produced BY clustering the same expression data, so scoring
-      # clustering methods against them rewards whichever method most resembles
-      # the one that made the labels. Tabula Muris annotations come from a
-      # different lab, protocol and pipeline, so they are at least independent
-      # of anything measured here.
+      # Duo, Robinson & Soneson 2018 (F1000Research), the reference clustering
+      # benchmark, via the DuoClustering2018 ExperimentHub package. The *TCC
+      # variants are excluded: 685k-812k transcript compatibility classes are
+      # not a gene matrix. The filteredExpr10/filteredHVG10/filteredM3Drop10
+      # variants are excluded too -- gene selection is already applied there, so
+      # FEAT would be a no-op that still emits a plausible-looking output.
       #
-      # Caveats from the screen: 81 labels with single-digit classes, and the
-      # LOWEST ceiling of the four screened (0.890) -- even the supervised
-      # oracle cannot fully separate 81 types from this embedding, so the
-      # achievable range is compressed and the 17.1% headroom is over a smaller
-      # span than tm-droplet's 23.9%.
-      - id: tm-facs
-        name: "Tabula Muris FACS (45k cells, 81 labels)"
+      # ACCURACY / CALIBRATION TIER ONLY. Every dataset here is 222-6,498 cells.
+      # scanpy's kNN is exact below 4,096, so on all but zhengmix4uneq the graph
+      # is a CONSTANT across seeds and the seed-variance decomposition is
+      # degenerate by construction, not merely small. These are also smaller
+      # than pancreas, so nothing here says anything about cost.
+      # See docs/duo2018-calibration-tier.md.
+      - id: duo-koh
+        name: "Duo 2018 koh"
         software_environment: omni_data
         repository:
           url: https://github.com/btraven00/omni-data
           commit: 80611e83d13c8bd0d15fbc033c6a5e1a7900a0b8
         parameters:
-          - uri: file:///home/b/phd/data/tm_omnidata/tm-facs/
+          - uri: file:///home/b/phd/data/duo_omnidata/duo-koh/
             uri_type: directory
-      - id: d-integration
-        name: "R-based dataset downloads (integration collection)"
-        software_environment: r_conda
+      - id: duo-kumar
+        name: "Duo 2018 kumar"
+        software_environment: omni_data
         repository:
-          url: https://github.com/omni-scrna/1-data
-          commit: 0346bd4
+          url: https://github.com/btraven00/omni-data
+          commit: 80611e83d13c8bd0d15fbc033c6a5e1a7900a0b8
         parameters:
-          - dataset_name: "pancreas"
-            batch_var: study
-            labels_var: clusters.truth
-            sample_var: study
+          - uri: file:///home/b/phd/data/duo_omnidata/duo-kumar/
+            uri_type: directory
+      - id: duo-simkumar4easy
+        name: "Duo 2018 simkumar4easy"
+        software_environment: omni_data
+        repository:
+          url: https://github.com/btraven00/omni-data
+          commit: 80611e83d13c8bd0d15fbc033c6a5e1a7900a0b8
+        parameters:
+          - uri: file:///home/b/phd/data/duo_omnidata/duo-simkumar4easy/
+            uri_type: directory
+      - id: duo-simkumar4hard
+        name: "Duo 2018 simkumar4hard"
+        software_environment: omni_data
+        repository:
+          url: https://github.com/btraven00/omni-data
+          commit: 80611e83d13c8bd0d15fbc033c6a5e1a7900a0b8
+        parameters:
+          - uri: file:///home/b/phd/data/duo_omnidata/duo-simkumar4hard/
+            uri_type: directory
+      - id: duo-simkumar8hard
+        name: "Duo 2018 simkumar8hard"
+        software_environment: omni_data
+        repository:
+          url: https://github.com/btraven00/omni-data
+          commit: 80611e83d13c8bd0d15fbc033c6a5e1a7900a0b8
+        parameters:
+          - uri: file:///home/b/phd/data/duo_omnidata/duo-simkumar8hard/
+            uri_type: directory
+      - id: duo-trapnell
+        name: "Duo 2018 trapnell"
+        software_environment: omni_data
+        repository:
+          url: https://github.com/btraven00/omni-data
+          commit: 80611e83d13c8bd0d15fbc033c6a5e1a7900a0b8
+        parameters:
+          - uri: file:///home/b/phd/data/duo_omnidata/duo-trapnell/
+            uri_type: directory
+      - id: duo-zhengmix4eq
+        name: "Duo 2018 zhengmix4eq"
+        software_environment: omni_data
+        repository:
+          url: https://github.com/btraven00/omni-data
+          commit: 80611e83d13c8bd0d15fbc033c6a5e1a7900a0b8
+        parameters:
+          - uri: file:///home/b/phd/data/duo_omnidata/duo-zhengmix4eq/
+            uri_type: directory
+      - id: duo-zhengmix4uneq
+        name: "Duo 2018 zhengmix4uneq"
+        software_environment: omni_data
+        repository:
+          url: https://github.com/btraven00/omni-data
+          commit: 80611e83d13c8bd0d15fbc033c6a5e1a7900a0b8
+        parameters:
+          - uri: file:///home/b/phd/data/duo_omnidata/duo-zhengmix4uneq/
+            uri_type: directory
+      - id: duo-zhengmix8eq
+        name: "Duo 2018 zhengmix8eq"
+        software_environment: omni_data
+        repository:
+          url: https://github.com/btraven00/omni-data
+          commit: 80611e83d13c8bd0d15fbc033c6a5e1a7900a0b8
+        parameters:
+          - uri: file:///home/b/phd/data/duo_omnidata/duo-zhengmix8eq/
+            uri_type: directory
 
   - id: FILT
     inputs:
@@ -285,7 +334,7 @@ stages:
           # Leiden's own stochasticity, not kNN or PCA variation (those are
           # separate axes -- permutation_seed on NNG).
           - flavor: igraph
-            resolution: [0.05, 0.2, 1.0]
+            resolution: [0.05, 0.2, 0.5, 1.0]
             random_seed: *seeds
       # GPU arm. requires_capabilities gates it, so the slice still runs on a
       # box without a GPU -- just without this arm.
@@ -301,7 +350,7 @@ stages:
           entrypoint: cluster
         parameters:
           - method: rapids-leiden
-            resolution: [0.05, 0.2, 1.0]
+            resolution: [0.05, 0.2, 0.5, 1.0]
             random_seed: *seeds
 
       # Two more Leidens, in R, on the same seed sweep. scanpy and rapids agree
@@ -317,7 +366,7 @@ stages:
           entrypoint: cluster
         parameters:
           - flavor: leiden_modularity
-            resolution: [0.05, 0.2, 1.0]
+            resolution: [0.05, 0.2, 0.5, 1.0]
             walktrap_steps: 4
             random_seed: *seeds
       - id: cl-seurat
@@ -330,7 +379,7 @@ stages:
         parameters:
           # --flavor is required by this module; leiden to match the others.
           - flavor: leiden
-            resolution: [0.05, 0.2, 1.0]
+            resolution: [0.05, 0.2, 0.5, 1.0]
             random_seed: *seeds
 
   # The bounds. Same output id as CLUST, so they land in CLUST-M beside the arms.
@@ -375,23 +424,6 @@ stages:
 
   # poem, on the graph itself: intrinsic quality of the kNN graph the arms were
   # clustered from, independent of any partition.
-  - id: GRAPH-M
-    inputs:
-      - neighbors_h5
-      - rawdata_clusters_truth
-    outputs:
-      - id: graph_metrics
-        path: "{dataset}_graph_metrics.json"
-    modules:
-      - id: nn-metrics-r
-        name: "Graph metrics in R"
-        software_environment: "metrics"
-        repository:
-          url: /home/b/lab/omni-scrna/split-stages-plan-modules/metrics
-          commit: bc998fb
-          entrypoint: graph-r
-
-  # poem, on every partition: the two CLUST arms and the two bounds, one call.
   - id: CLUST-M
     inputs:
       - clusters_tsv

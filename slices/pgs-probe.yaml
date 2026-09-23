@@ -1,5 +1,5 @@
-name: clustering-bounds
-id: clustering_bounds
+name: pgs-probe
+id: pgs_probe
 description: >
   Clustering slice with its own floor and ceiling. A dummy dataset through the
   minimum path to an embedding, then two clusterers and two bounds, all four
@@ -38,6 +38,9 @@ software_environments:
   metrics:
     name: metrics env
     conda: ../envs/metrics.yaml
+  pgs:
+    name: PyGenStability (Markov Stability)
+    conda: ../envs/pgs.yml
   rapids_singlecell:
     name: rapids-singlecell GPU env (needs an NVIDIA GPU)
     conda: ../envs/rapids-singlecell.yml
@@ -70,40 +73,6 @@ stages:
       - id: properties_info
         path: "{dataset}_properties.yaml"
     modules:
-      # be1-subset dropped: the screen put it at 3.7% headroom, i.e. Leiden is
-      # already at its oracle and it cannot discriminate methods however much it
-      # is resampled. tm-droplet replaces it at 23.9% headroom (55k cells, 55
-      # labels, ceiling 0.968, best probe 0.737).
-      - id: tm-droplet
-        name: "Tabula Muris droplet (55k cells, 55 labels)"
-        software_environment: omni_data
-        repository:
-          url: https://github.com/btraven00/omni-data
-          commit: 80611e83d13c8bd0d15fbc033c6a5e1a7900a0b8
-        parameters:
-          - uri: file:///home/b/phd/data/tm_omnidata/tm-droplet/
-            uri_type: directory
-      # tm-facs: the non-circular arm. pancreas' labels are `clusters.truth`,
-      # i.e. labels produced BY clustering the same expression data, so scoring
-      # clustering methods against them rewards whichever method most resembles
-      # the one that made the labels. Tabula Muris annotations come from a
-      # different lab, protocol and pipeline, so they are at least independent
-      # of anything measured here.
-      #
-      # Caveats from the screen: 81 labels with single-digit classes, and the
-      # LOWEST ceiling of the four screened (0.890) -- even the supervised
-      # oracle cannot fully separate 81 types from this embedding, so the
-      # achievable range is compressed and the 17.1% headroom is over a smaller
-      # span than tm-droplet's 23.9%.
-      - id: tm-facs
-        name: "Tabula Muris FACS (45k cells, 81 labels)"
-        software_environment: omni_data
-        repository:
-          url: https://github.com/btraven00/omni-data
-          commit: 80611e83d13c8bd0d15fbc033c6a5e1a7900a0b8
-        parameters:
-          - uri: file:///home/b/phd/data/tm_omnidata/tm-facs/
-            uri_type: directory
       - id: d-integration
         name: "R-based dataset downloads (integration collection)"
         software_environment: r_conda
@@ -181,6 +150,8 @@ stages:
             number_selected: 2000
 
   - id: PCA
+    resources:
+      cores: 8
     inputs:
       - normalized_selected_h5
     outputs:
@@ -189,8 +160,6 @@ stages:
       - id: loadings_tsv
         path: "{dataset}_loadings.tsv"
     modules:
-      # arpack: exact and deterministic, so PCA contributes no variance of its
-      # own and both the arms and the bounds see one fixed embedding.
       - id: pc-scanpy
         name: "scanpy PCA"
         software_environment: "scanpy"
@@ -199,44 +168,11 @@ stages:
           commit: b41bf43
           entrypoint: pca
         parameters:
-          # Deterministic reference. arpack has NO seed axis, so one draw is all
-          # there is -- sweeping random_seed here would produce byte-identical
-          # embeddings and a null result that looks like "PCA seed does not
-          # matter".
           - solver: arpack
             dense: "false"
             n_components: 50
-            random_seed: *seed0
-          # The real PCA seed axis. scanpy coerces solver=randomized to arpack on
-          # SPARSE input (pca.py:21 "silently ignored", measured byte-identical),
-          # so the seed only bites with dense: true, where seed 42 vs 43 moved the
-          # embedding by 1.7e-3. Dense here is 55k x 2000 x 8B ~= 0.9GB, affordable.
-          - solver: randomized
-            dense: "true"
-            n_components: 50
-            random_seed: *pca_seeds
-      # Second exact arm, different library. covariance-eigh is a deterministic
-      # gram+eigh, so it has no seed axis by construction -- that is the point:
-      # it isolates how much of the pipeline spread survives when the embedding
-      # is fixed, and whether two independent exact solvers land in the same
-      # place (scanpy's own notes put covariance_eigh within 8e-13 of arpack).
-      - id: pc-rapids
-        name: "rapids-singlecell PCA (GPU, exact)"
-        software_environment: rapids_singlecell
-        requires_capabilities: [gpu]
-        repository:
-          url: https://github.com/omni-scrna/rapids-singlecell
-          commit: b28deb6756ad4ef7df0842422729547e1762aebb
-          entrypoint: pca
-        parameters:
-          - solver: covariance-eigh
-            n_components: 50
-            random_seed: *seed0
+            random_seed: 1
 
-  # ---------------------------------------------------------------------------
-  # The comparison. CLUST and CLUSTBOUND both emit clusters_tsv; CLUST-M scores
-  # all four producers with one poem call.
-  # ---------------------------------------------------------------------------
   - id: NNG
     inputs:
       - embedding_tsv
@@ -257,83 +193,55 @@ stages:
             random_seed: 42
 
   - id: CLUST
+    resources:
+      cores: 32
     inputs:
       - neighbors_h5
     outputs:
       - id: clusters_tsv
         path: "{dataset}_clusters.tsv"
     modules:
+      # scale_selection=robust on purpose for this probe: the module's own notes
+      # record that argmin-NVI lands on a different scale run to run at 4,925
+      # cells (k=70/70/53/45 on ONE graph, ARI 0.70 between runs) while two runs
+      # that pick the same scale agree at ARI 1.0000. Three seeds here test
+      # whether that reproduces at 12k. To measure anything ELSE about the
+      # method the scale must be pinned with --scale_index.
+      #
+      # Scan is 10 x 10, NOT the 20 x 25 of the be1 numbers in the module notes
+      # -- do not compare the timings directly.
+      - id: cl-pgs
+        name: "Markov Stability (PyGenStability)"
+        software_environment: pgs
+        repository:
+          url: /home/b/lab/omni-scrna/split-stages-plan-modules/pygenstability
+          commit: f50b9aa
+          entrypoint: cluster
+        parameters:
+          # Range RAISED after the first probe: at min/max -1.5/0.5 the scan
+            # spanned k=291..26 and never reached pancreas's 8 true classes, so
+            # no low-NVI plateau could form and the module correctly refused to
+            # pick a scale. 0.0..2.0 puts the coarse end at t=100.
+          - constructor: continuous_normalized
+            min_scale: 0.0
+            max_scale: 2.0
+            n_scale: 10
+            n_tries: 10
+            scale_selection: robust
+            n_workers: 16
+            random_seed: [1, 2, 3]
       - id: cl-scanpy
         name: "scanpy Leiden clustering"
         software_environment: "scanpy"
         repository:
           url: https://github.com/omni-scrna/scanpy
-          commit: b41bf43
+          commit: 7cf3472
           entrypoint: cluster
         parameters:
-          # Stability sweep: two resolutions, many seeds. Expanding the seed
-          # in the plan rather than looping inside the module costs ~8x -- each
-          # job re-pays ~2.2s of interpreter start, and its CLUST-M scoring
-          # re-pays 7.4s of loading R's poem to perform 0.028s of arithmetic --
-          # and buys back every line of module code: --random_seed already
-          # exists on all four clusterers, so one list covers scanpy, rapids,
-          # scrapper and seurat with nothing added, and snakemake parallelises
-          # it. The internalised --repeats alternative needed a new entrypoint
-          # per clusterer, in two languages.
-          #
-          # Only CLUST's seed moves: the graph above is fixed, so this isolates
-          # Leiden's own stochasticity, not kNN or PCA variation (those are
-          # separate axes -- permutation_seed on NNG).
           - flavor: igraph
             resolution: [0.05, 0.2, 1.0]
-            random_seed: *seeds
-      # GPU arm. requires_capabilities gates it, so the slice still runs on a
-      # box without a GPU -- just without this arm.
-      - id: cl-rapids
-        name: "rapids-singlecell graph clustering (GPU)"
-        software_environment: rapids_singlecell
-        requires_capabilities: [gpu]
-        repository:
-          url: https://github.com/omni-scrna/rapids-singlecell
-          # PR #8 (add-rapids-module): carries the embedding_tsv rename and the
-          # src/phases.py instrumentation. Repin to main once #8 lands.
-          commit: b28deb6756ad4ef7df0842422729547e1762aebb
-          entrypoint: cluster
-        parameters:
-          - method: rapids-leiden
-            resolution: [0.05, 0.2, 1.0]
-            random_seed: *seeds
+            random_seed: [1, 2, 3]
 
-      # Two more Leidens, in R, on the same seed sweep. scanpy and rapids agree
-      # to <0.02 ARI everywhere, so they cannot say whether instability is
-      # Leiden or the library; a different implementation can. One flavor each,
-      # matched as closely as the modules allow.
-      - id: cl-scrapper
-        name: "scrapper clustering"
-        software_environment: "scrapper"
-        repository:
-          url: https://github.com/omni-scrna/scrapper
-          commit: 8a1cfd8
-          entrypoint: cluster
-        parameters:
-          - flavor: leiden_modularity
-            resolution: [0.05, 0.2, 1.0]
-            walktrap_steps: 4
-            random_seed: *seeds
-      - id: cl-seurat
-        name: "Seurat clustering"
-        software_environment: "seurat"
-        repository:
-          url: https://github.com/omni-scrna/seurat
-          commit: 537d178
-          entrypoint: cluster
-        parameters:
-          # --flavor is required by this module; leiden to match the others.
-          - flavor: leiden
-            resolution: [0.05, 0.2, 1.0]
-            random_seed: *seeds
-
-  # The bounds. Same output id as CLUST, so they land in CLUST-M beside the arms.
   - id: CLUSTBOUND
     inputs:
       - embedding_tsv
@@ -375,23 +283,6 @@ stages:
 
   # poem, on the graph itself: intrinsic quality of the kNN graph the arms were
   # clustered from, independent of any partition.
-  - id: GRAPH-M
-    inputs:
-      - neighbors_h5
-      - rawdata_clusters_truth
-    outputs:
-      - id: graph_metrics
-        path: "{dataset}_graph_metrics.json"
-    modules:
-      - id: nn-metrics-r
-        name: "Graph metrics in R"
-        software_environment: "metrics"
-        repository:
-          url: /home/b/lab/omni-scrna/split-stages-plan-modules/metrics
-          commit: bc998fb
-          entrypoint: graph-r
-
-  # poem, on every partition: the two CLUST arms and the two bounds, one call.
   - id: CLUST-M
     inputs:
       - clusters_tsv
