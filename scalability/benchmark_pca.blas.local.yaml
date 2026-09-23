@@ -1,0 +1,387 @@
+name: pca-scalability
+id: pca_scalability
+description: >
+  GPU PCA scalability slice. One DATA module per rung of the TENx cell-count
+  ladder, the minimum CPU path needed to reach a normalized/gene-selected
+  matrix, and rapids-singlecell PCA as the only method under test. The x-axis
+  is cells (the rungs), the y-axis is whatever `ob collect performance` records.
+benchmarker: "Ben <ben.uzh@proton.me>"
+
+version: "0.1.0"
+api_version: "0.4.0"
+
+software_backend: "conda"
+
+# Env paths resolve relative to THIS file, not to the invocation directory,
+# hence ../envs/ -- the envs stay shared with benchmark_conda.yaml at the root.
+software_environments:
+  scrapper:
+    name: scrapper multi-module
+    conda: ../envs/scrapper.yml
+  omni_data:
+    name: omni-data fixture loader
+    conda: ../envs/omni-data.yml
+  # BLAS variants: identical to their base env except for the pinned
+  # BLAS/LAPACK. This is an env-level axis -- conda resolves it at solve time,
+  # so it cannot be a module parameter.
+  scrapper_netlib:
+    name: scrapper + reference (netlib) BLAS, single-threaded
+    conda: ../envs/scrapper-netlib.yml
+  scrapper_openblas:
+    name: scrapper + OpenBLAS pthreads
+    conda: ../envs/scrapper-openblas.yml
+  scanpy_netlib:
+    name: scanpy + reference (netlib) BLAS, single-threaded
+    conda: ../envs/scanpy-netlib.yml
+  scanpy_openblas:
+    name: scanpy + OpenBLAS pthreads
+    conda: ../envs/scanpy-openblas.yml
+  rapids_singlecell:
+    name: rapids-singlecell GPU env (cu13 wheels; needs an NVIDIA GPU)
+    conda: ../envs/rapids-singlecell.yml
+
+# ---------------------------------------------------------------------------
+# Anchors. Not schema keys -- omnibenchmark ignores unknown top-level keys,
+# they exist to hold the anchor.
+# ---------------------------------------------------------------------------
+
+# Every ladder rung is the SAME omni-data module pointed at a different
+# directory on disk, so the module body is written once here and merged in
+# with `<<`. Only `id`, `name` and the uri differ per rung.
+ladder_module: &ladder
+  software_environment: omni_data
+  repository:
+    url: https://github.com/btraven00/omni-data
+    commit: eb4d368b5e83b26389e6047dd8bad6badede78f8
+
+# One seed. Seed spread is a different experiment from size scaling -- adding
+# seeds here multiplies every rung and blurs the curve with within-point
+# variance. Add a second axis only once the curve itself is trusted.
+seeds: &seeds [42]
+
+stages:
+  # -------------------------------------------------------------------------
+  # DATA: the ladder. Built by build_tenx_ladder.py; rungs double, and each is
+  # a strict subset of the next (verified all-pairs), so a change along the
+  # curve is "more cells", not "different cells".
+  #
+  # The module id IS {dataset}: api 0.4 passes it as --name and the stage
+  # outputs are "{dataset}.h5ad", so each id must match the stem the files are
+  # published with (tenx-0005k.h5ad, tenx-0005k_properties.yaml, ...).
+  #
+  # NOTE: this ladder has NO cell-type labels -- the truth files are emitted
+  # header-only on purpose. Any metric stage that consumes them is invalid
+  # here, which is why this slice stops at PCA.
+  # -------------------------------------------------------------------------
+  - id: DATA
+    outputs:
+      - id: rawdata_h5ad
+        path: "{dataset}.h5ad"
+      - id: rawdata_clusters_truth
+        path: "{dataset}.clusters_truth.tsv"
+      - id: rawdata_clusters_truth_num
+        path: "{dataset}.clusters_truth_num.txt"
+      - id: properties_info
+        path: "{dataset}_properties.yaml"
+    modules:
+      - id: tenx-0005k
+        name: "TENx ladder: 5k cells"
+        <<: *ladder
+        parameters:
+          - uri: file:///home/b/phd/data/tenx_ladder/tenx-0005k
+      - id: tenx-0010k
+        name: "TENx ladder: 10k cells"
+        <<: *ladder
+        parameters:
+          - uri: file:///home/b/phd/data/tenx_ladder/tenx-0010k
+      - id: tenx-0020k
+        name: "TENx ladder: 20k cells"
+        <<: *ladder
+        parameters:
+          - uri: file:///home/b/phd/data/tenx_ladder/tenx-0020k
+      # - id: tenx-0040k
+      #   name: "TENx ladder: 40k cells"
+      #   <<: *ladder
+      #   parameters:
+      #     - uri: file:///home/b/phd/data/tenx_ladder/tenx-0040k
+      # - id: tenx-0080k
+      #   name: "TENx ladder: 80k cells"
+      #   <<: *ladder
+      #   parameters:
+      #     - uri: file:///home/b/phd/data/tenx_ladder/tenx-0080k
+      # - id: tenx-0160k
+      #   name: "TENx ladder: 160k cells"
+      #   <<: *ladder
+      #   parameters:
+      #     - uri: file:///home/b/phd/data/tenx_ladder/tenx-0160k
+      # ---- rungs past here have not been run end to end yet. Known ceilings:
+      # in-memory R upstream (scrapper FILT/NORM/FEAT) and 8GB VRAM at PCA.
+      # Uncomment one rung at a time.
+      # - id: tenx-0320k
+      #   name: "TENx ladder: 320k cells"
+      #   <<: *ladder
+      #   parameters:
+      #     - uri: file:///home/b/phd/data/tenx_ladder/tenx-0320k
+      # - id: tenx-0640k
+      #   name: "TENx ladder: 640k cells"
+      #   <<: *ladder
+      #   parameters:
+      #     - uri: file:///home/b/phd/data/tenx_ladder/tenx-0640k
+      #
+      # 640k is the LAST R-readable rung, so it is the last one this plan can
+      # run: at 1.31M cells nnz is 2.62e9, past the 2^31 that R's integers
+      # hold. anndataR reads the int64 indptr, overflows it to NA, and drops
+      # layers/counts with only a warning -- the AnnData comes back with no
+      # counts at all rather than failing outright. The full rung needs an
+      # all-python/GPU upstream, not a bigger box.
+      # - id: tenx-1306k
+      #   name: "TENx ladder: 1.31M cells (whole dataset)"
+      #   <<: *ladder
+      #   parameters:
+      #     - uri: file:///home/b/phd/data/tenx_ladder/tenx-1306k
+
+  # -------------------------------------------------------------------------
+  # FILT / NORM / FEAT: scaffolding, not methods under test. One module, one
+  # parameter set each -- the only job is to hand PCA a normalized, 2000-gene
+  # matrix. These are CPU/R and will dominate wall-clock at the top rungs;
+  # they are NOT part of the scalability measurement.
+  # -------------------------------------------------------------------------
+  - id: FILT
+    inputs:
+      - rawdata_h5ad
+      - properties_info
+    outputs:
+      - id: filtered_cellids
+        path: "{dataset}_cellids.txt.gz"
+      - id: filtered_featureids
+        path: "{dataset}_featureids.txt.gz"
+    modules:
+      - id: fi-scrapper
+        name: "scrapper-style filtering"
+        software_environment: scrapper
+        repository:
+          # TEMPORARY local checkout -- restore before pushing:
+          #   url: https://github.com/omni-scrna/scrapper
+          #   commit: fa4dc78
+          url: /home/b/lab/omni-scrna/split-stages-plan-modules/scrapper
+          commit: e98bdd9
+          entrypoint: filter
+        parameters:
+          # delayed: read counts as a DelayedArray instead of materialising
+          # them. Set on every rung, not just the big one, so one read path
+          # spans the whole curve and the points stay comparable.
+          - backend: delayed
+
+  - id: NORM
+    inputs:
+      - rawdata_h5ad
+      - filtered_cellids
+      - filtered_featureids
+    outputs:
+      - id: normalized_h5
+        path: "{dataset}_normalized.h5"
+    modules:
+      - id: nr-scrapper
+        name: "scrapper-based normalization"
+        software_environment: scrapper
+        repository:
+          # TEMPORARY local checkout -- restore before pushing:
+          #   url: https://github.com/omni-scrna/scrapper
+          #   commit: fa4dc78
+          url: /home/b/lab/omni-scrna/split-stages-plan-modules/scrapper
+          commit: e98bdd9
+          entrypoint: normalize
+        parameters:
+          - backend: delayed
+
+  - id: FEAT
+    inputs:
+      - rawdata_h5ad
+      - normalized_h5
+      - filtered_cellids
+      - filtered_featureids
+      - properties_info
+    outputs:
+      - id: normalized_selected_h5
+        path: "{dataset}_normalized_selected.h5"
+    modules:
+      - id: fe-scrapper
+        name: "scrapper-based gene selection"
+        software_environment: scrapper
+        repository:
+          # TEMPORARY local checkout -- restore before pushing:
+          #   url: https://github.com/omni-scrna/scrapper
+          #   commit: fa4dc78
+          url: /home/b/lab/omni-scrna/split-stages-plan-modules/scrapper
+          commit: e98bdd9
+          entrypoint: select
+        parameters:
+          # one list item: a second "- " would sweep two configurations.
+          - number_selected: 2000
+            backend: delayed
+
+  # -------------------------------------------------------------------------
+  # PCA: the only thing actually under test
+  # -------------------------------------------------------------------------
+  - id: PCA
+    resources:
+      # Drives snakemake's threads: (needs the ob threads-directive branch),
+      # which sets OMP_NUM_THREADS and makes the scheduler reserve the cores
+      # instead of running N jobs that each spawn their own pool.
+      cores: 8
+    inputs:
+      - normalized_selected_h5
+    outputs:
+      - id: pcas_tsv
+        path: "{dataset}_pcas.tsv"
+      - id: loadings_tsv
+        path: "{dataset}_loadings.tsv"
+    modules:
+      # Matched Krylov-family solvers across the three: arpack / irlba /
+      # lanczos. Comparing covariance-eigh against arpack would measure the
+      # algorithm and call it hardware.
+      #
+      # Each CPU module appears twice, identical but for the BLAS env. The
+      # within-module netlib-vs-openblas delta is the confounder under test;
+      # rapids appears once because it does not touch host BLAS.
+      - id: pc-scanpy-netlib
+        name: "scanpy PCA (reference BLAS)"
+        software_environment: scanpy_netlib
+        repository:
+          # TEMPORARY local checkout -- restore before pushing:
+          #   url: https://github.com/omni-scrna/scanpy
+          #   commit: 2b960a6
+          url: /home/b/lab/omni-scrna/split-stages-plan-modules/scanpy
+          commit: cbe492b
+          entrypoint: pca
+        parameters:
+          # sparse Krylov: not a BLAS-3 path, expected to be insensitive
+          - solver: arpack
+            dense: "false"
+            blas_threads: 1
+            n_components: 50
+            random_seed: 42
+          # dense: LAPACK gesdd, where BLAS-3 dominates
+          - solver: full
+            dense: "true"
+            blas_threads: 1
+            n_components: 50
+            random_seed: 42
+      - id: pc-scanpy-openblas
+        name: "scanpy PCA (OpenBLAS pthreads)"
+        software_environment: scanpy_openblas
+        repository:
+          # TEMPORARY local checkout -- restore before pushing:
+          #   url: https://github.com/omni-scrna/scanpy
+          #   commit: 2b960a6
+          url: /home/b/lab/omni-scrna/split-stages-plan-modules/scanpy
+          commit: cbe492b
+          entrypoint: pca
+        parameters:
+          # sparse Krylov: not a BLAS-3 path, expected to be insensitive
+          - solver: arpack
+            dense: "false"
+            blas_threads: [1, 8]
+            n_components: 50
+            random_seed: 42
+          # dense: LAPACK gesdd, where BLAS-3 dominates. Also the precision
+          # arm -- the matrix arrives float64 from R, while the GPU paths being
+          # challenged read float32, so dtype is swept here rather than left
+          # implicit.
+          - solver: full
+            dense: "true"
+            blas_threads: [1, 8]
+            dtype: [float64, float32]
+            n_components: 50
+            random_seed: 42
+      - id: pc-scrapper-netlib
+        name: "scrapper PCA (reference BLAS)"
+        software_environment: scrapper_netlib
+        repository:
+          # TEMPORARY local checkout -- restore before pushing:
+          #   url: https://github.com/omni-scrna/scrapper
+          #   commit: fa4dc78
+          url: /home/b/lab/omni-scrna/split-stages-plan-modules/scrapper
+          commit: e98bdd9
+          entrypoint: pca
+        parameters:
+          # sparse Krylov: not a BLAS-3 path, expected to be insensitive
+          - solver: irlba
+            dense: "false"
+            blas_threads: 1
+            n_components: 50
+            random_seed: 42
+          # dense: LAPACK gesdd, where BLAS-3 dominates
+          - solver: exact
+            dense: "true"
+            blas_threads: 1
+            n_components: 50
+            random_seed: 42
+      # No precision arm here: R has no native float32. Matching the GPU
+      # float32 paths would need the `float` package, which is itself the
+      # point -- an R-vs-GPU comparison at float32 is not comparing like with
+      # like unless someone goes out of their way to make it so.
+      - id: pc-scrapper-openblas
+        name: "scrapper PCA (OpenBLAS pthreads)"
+        software_environment: scrapper_openblas
+        repository:
+          # TEMPORARY local checkout -- restore before pushing:
+          #   url: https://github.com/omni-scrna/scrapper
+          #   commit: fa4dc78
+          url: /home/b/lab/omni-scrna/split-stages-plan-modules/scrapper
+          commit: e98bdd9
+          entrypoint: pca
+        parameters:
+          # sparse Krylov: not a BLAS-3 path, expected to be insensitive
+          - solver: irlba
+            dense: "false"
+            blas_threads: [1, 8]
+            n_components: 50
+            random_seed: 42
+          # dense: LAPACK gesdd, where BLAS-3 dominates
+          - solver: exact
+            dense: "true"
+            blas_threads: [1, 8]
+            n_components: 50
+            random_seed: 42
+          # centering arm: `random` on a SPARSE matrix is where deferring
+          # matters -- materialised centering densifies it, deferred keeps it
+          # sparse. Identical maths, so any delta is implementation only.
+          - solver: random
+            dense: "false"
+            deferred: ["true", "false"]
+            blas_threads: 8
+            n_components: 50
+            random_seed: 42
+      - id: pc-rapids
+        name: "rapids-singlecell PCA (GPU)"
+        software_environment: rapids_singlecell
+        requires_capabilities: [gpu]
+        repository:
+          # TEMPORARY local checkout -- restore before pushing:
+          #   url: https://github.com/omni-scrna/rapids-singlecell
+          #   commit: 4fc9d36
+          url: /home/b/lab/omni-scrna/split-stages-plan-modules/rapids-singlecell
+          commit: 3c22de1
+          entrypoint: pca
+        parameters:
+          # Solver pairing. Two families are matched 3-way across scanpy,
+          # scrapper and rapids, with the representation held constant inside
+          # each family:
+          #   A sparse Krylov  arpack | irlba | lanczos
+          #   B dense exact    full   | exact | full
+          # A randomized family cannot be matched and is deliberately absent:
+          # scanpy coerces randomized to arpack on sparse input, so it needs
+          # dense to be genuinely randomized, while rapids pins
+          # randomized-halko to sparse. Pairing them would compare
+          # representations, which is the error this whole arm exists to avoid.
+          - solver: lanczos
+            dense: "false"
+            dtype: [float64, float32]
+            n_components: 50
+            random_seed: 42
+          - solver: full
+            dense: "true"
+            dtype: float64
+            n_components: 50
+            random_seed: 42

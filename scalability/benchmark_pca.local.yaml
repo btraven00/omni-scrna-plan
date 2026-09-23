@@ -1,0 +1,287 @@
+name: pca-scalability
+id: pca_scalability
+description: >
+  GPU PCA scalability slice. One DATA module per rung of the TENx cell-count
+  ladder, the minimum CPU path needed to reach a normalized/gene-selected
+  matrix, and rapids-singlecell PCA as the only method under test. The x-axis
+  is cells (the rungs), the y-axis is whatever `ob collect performance` records.
+benchmarker: "Ben <ben.uzh@proton.me>"
+
+version: "0.1.0"
+api_version: "0.4.0"
+
+software_backend: "conda"
+
+# Env paths resolve relative to THIS file, not to the invocation directory,
+# hence ../envs/ -- the envs stay shared with benchmark_conda.yaml at the root.
+software_environments:
+  scrapper:
+    name: scrapper multi-module
+    conda: ../envs/scrapper.yml
+  omni_data:
+    name: omni-data fixture loader
+    conda: ../envs/omni-data.yml
+  rapids_singlecell:
+    name: rapids-singlecell GPU env (cu13 wheels; needs an NVIDIA GPU)
+    conda: ../envs/rapids-singlecell.yml
+  scanpy:
+    name: scanpy CPU
+    conda: ../envs/scanpy.yml
+  pca_biocsingular:
+    name: BiocSingular PCA (CPU)
+    conda: ../envs/pca-biocsingular-r.yml
+
+# ---------------------------------------------------------------------------
+# Anchors. Not schema keys -- omnibenchmark ignores unknown top-level keys,
+# they exist to hold the anchor.
+# ---------------------------------------------------------------------------
+
+# Every ladder rung is the SAME omni-data module pointed at a different
+# directory on disk, so the module body is written once here and merged in
+# with `<<`. Only `id`, `name` and the uri differ per rung.
+ladder_module: &ladder
+  software_environment: omni_data
+  repository:
+    url: https://github.com/btraven00/omni-data
+    commit: eb4d368b5e83b26389e6047dd8bad6badede78f8
+
+# One seed. Seed spread is a different experiment from size scaling -- adding
+# seeds here multiplies every rung and blurs the curve with within-point
+# variance. Add a second axis only once the curve itself is trusted.
+seeds: &seeds [42]
+
+stages:
+  # -------------------------------------------------------------------------
+  # DATA: the ladder. Built by build_tenx_ladder.py; rungs double, and each is
+  # a strict subset of the next (verified all-pairs), so a change along the
+  # curve is "more cells", not "different cells".
+  #
+  # The module id IS {dataset}: api 0.4 passes it as --name and the stage
+  # outputs are "{dataset}.h5ad", so each id must match the stem the files are
+  # published with (tenx-0005k.h5ad, tenx-0005k_properties.yaml, ...).
+  #
+  # NOTE: this ladder has NO cell-type labels -- the truth files are emitted
+  # header-only on purpose. Any metric stage that consumes them is invalid
+  # here, which is why this slice stops at PCA.
+  # -------------------------------------------------------------------------
+  - id: DATA
+    outputs:
+      - id: rawdata_h5ad
+        path: "{dataset}.h5ad"
+      - id: rawdata_clusters_truth
+        path: "{dataset}.clusters_truth.tsv"
+      - id: rawdata_clusters_truth_num
+        path: "{dataset}.clusters_truth_num.txt"
+      - id: properties_info
+        path: "{dataset}_properties.yaml"
+    modules:
+      - id: tenx-0005k
+        name: "TENx ladder: 5k cells"
+        <<: *ladder
+        parameters:
+          - uri: file:///home/b/phd/data/tenx_ladder/tenx-0005k
+      - id: tenx-0010k
+        name: "TENx ladder: 10k cells"
+        <<: *ladder
+        parameters:
+          - uri: file:///home/b/phd/data/tenx_ladder/tenx-0010k
+      - id: tenx-0020k
+        name: "TENx ladder: 20k cells"
+        <<: *ladder
+        parameters:
+          - uri: file:///home/b/phd/data/tenx_ladder/tenx-0020k
+      # - id: tenx-0040k
+      # name: "TENx ladder: 40k cells"
+      # <<: *ladder
+      # parameters:
+      # - uri: file:///home/b/phd/data/tenx_ladder/tenx-0040k
+      # - id: tenx-0080k
+      # name: "TENx ladder: 80k cells"
+      # <<: *ladder
+      # parameters:
+      # - uri: file:///home/b/phd/data/tenx_ladder/tenx-0080k
+      # - id: tenx-0160k
+      # name: "TENx ladder: 160k cells"
+      # <<: *ladder
+      # parameters:
+      # - uri: file:///home/b/phd/data/tenx_ladder/tenx-0160k
+      # ---- rungs past here have not been run end to end yet. Known ceilings:
+      # in-memory R upstream (scrapper FILT/NORM/FEAT) and 8GB VRAM at PCA.
+      # Uncomment one rung at a time.
+      # - id: tenx-0320k
+      #   name: "TENx ladder: 320k cells"
+      #   <<: *ladder
+      #   parameters:
+      #     - uri: file:///home/b/phd/data/tenx_ladder/tenx-0320k
+      # - id: tenx-0640k
+      #   name: "TENx ladder: 640k cells"
+      #   <<: *ladder
+      #   parameters:
+      #     - uri: file:///home/b/phd/data/tenx_ladder/tenx-0640k
+      #
+      # 640k is the LAST R-readable rung, so it is the last one this plan can
+      # run: at 1.31M cells nnz is 2.62e9, past the 2^31 that R's integers
+      # hold. anndataR reads the int64 indptr, overflows it to NA, and drops
+      # layers/counts with only a warning -- the AnnData comes back with no
+      # counts at all rather than failing outright. The full rung needs an
+      # all-python/GPU upstream, not a bigger box.
+      # - id: tenx-1306k
+      #   name: "TENx ladder: 1.31M cells (whole dataset)"
+      #   <<: *ladder
+      #   parameters:
+      #     - uri: file:///home/b/phd/data/tenx_ladder/tenx-1306k
+
+  # -------------------------------------------------------------------------
+  # FILT / NORM / FEAT: scaffolding, not methods under test. One module, one
+  # parameter set each -- the only job is to hand PCA a normalized, 2000-gene
+  # matrix. These are CPU/R and will dominate wall-clock at the top rungs;
+  # they are NOT part of the scalability measurement.
+  # -------------------------------------------------------------------------
+  - id: FILT
+    inputs:
+      - rawdata_h5ad
+      - properties_info
+    outputs:
+      - id: filtered_cellids
+        path: "{dataset}_cellids.txt.gz"
+      - id: filtered_featureids
+        path: "{dataset}_featureids.txt.gz"
+    modules:
+      - id: fi-scrapper
+        name: "scrapper-style filtering"
+        software_environment: scrapper
+        repository:
+          url: https://github.com/omni-scrna/scrapper
+          commit: 53640f2
+          entrypoint: filter
+        parameters:
+          # delayed: read counts as a DelayedArray instead of materialising
+          # them. Set on every rung, not just the big one, so one read path
+          # spans the whole curve and the points stay comparable.
+          - backend: delayed
+
+  - id: NORM
+    inputs:
+      - rawdata_h5ad
+      - filtered_cellids
+      - filtered_featureids
+    outputs:
+      - id: normalized_h5
+        path: "{dataset}_normalized.h5"
+    modules:
+      - id: nr-scrapper
+        name: "scrapper-based normalization"
+        software_environment: scrapper
+        repository:
+          url: https://github.com/omni-scrna/scrapper
+          commit: 53640f2
+          entrypoint: normalize
+        parameters:
+          - backend: delayed
+
+  - id: FEAT
+    inputs:
+      - rawdata_h5ad
+      - normalized_h5
+      - filtered_cellids
+      - filtered_featureids
+      - properties_info
+    outputs:
+      - id: normalized_selected_h5
+        path: "{dataset}_normalized_selected.h5"
+    modules:
+      - id: fe-scrapper
+        name: "scrapper-based gene selection"
+        software_environment: scrapper
+        repository:
+          url: https://github.com/omni-scrna/scrapper
+          commit: 53640f2
+          entrypoint: select
+        parameters:
+          # one list item: a second "- " would sweep two configurations.
+          - number_selected: 2000
+            backend: delayed
+
+  # -------------------------------------------------------------------------
+  # PCA: the only thing actually under test
+  # -------------------------------------------------------------------------
+  - id: PCA
+    inputs:
+      - normalized_selected_h5
+    outputs:
+      - id: pcas_tsv
+        path: "{dataset}_pcas.tsv"
+      - id: loadings_tsv
+        path: "{dataset}_loadings.tsv"
+    modules:
+      - id: pc-rapids
+        name: "rapids-singlecell PCA (GPU)"
+        software_environment: rapids_singlecell
+        # Capability gating needs omnibenchmark >0.6 (`ob run --with-capability gpu)
+        requires_capabilities: [gpu]
+        repository:
+          url: https://github.com/omni-scrna/rapids-singlecell
+          commit: 4fc9d36
+          entrypoint: pca
+        parameters:
+          # sparse-only solvers: normalized_selected_h5 loads as CSR and the
+          # module raises rather than let rsc silently swap in another solver.
+          # full/jacobi are dense-only, so they are out.
+          - solver: [lanczos, randomized-halko]
+            n_components: 30
+            random_seed: *seeds
+
+      # CPU reference for the GPU arms above. Solvers are paired by family and
+      # the representation is held constant (sparse both sides):
+      #   Krylov      lanczos          | irlba
+      #   randomized  randomized-halko | random
+      - id: pc-biocsingular
+        name: "BiocSingular PCA (CPU)"
+        software_environment: pca_biocsingular
+        repository:
+          url: https://github.com/btraven00/pca-biosingular-r
+          commit: c2ff957
+          entrypoint: pca
+        parameters:
+          # q = power iterations for --solver random; ignored by irlba, which
+          # is why it can sit on the shared line. 7 rather than rsvd's default
+          # of 2 because rapids hardcodes n_iter=7 (sklearn's "auto" at this
+          # shape) and does not expose it -- 2 would compare the defaults, not
+          # the libraries, and loses PC31+ (|cor| 0.275 vs 0.866 at q=7).
+          - solver: [irlba, random]
+            dense: "false"
+            power_iters: 7
+            n_components: 30
+            random_seed: *seeds
+
+      # scrapper ships libscran's own C++ irlba over Eigen (no BLAS at all),
+      # so it is a third Krylov point next to rapids lanczos and BiocSingular
+      # irlba. It has no randomized solver -- there is nothing to pair.
+      - id: pc-scrapper
+        name: "scrapper PCA (libscran irlba)"
+        software_environment: scrapper
+        repository:
+          url: https://github.com/omni-scrna/scrapper
+          commit: 53640f2
+          entrypoint: pca
+        parameters:
+          - solver: irlba
+            dense: "false"
+            n_components: 30
+            random_seed: *seeds
+
+      # scanpy: arpack only. Its "randomized" arm is silently coerced to arpack
+      # on sparse input (scanpy warns and swaps), so it would be a duplicate
+      # job, not a second solver -- see the module's own pca.py header.
+      - id: pc-scanpy
+        name: "scanpy PCA (arpack)"
+        software_environment: scanpy
+        repository:
+          url: https://github.com/omni-scrna/scanpy
+          commit: cbe492b
+          entrypoint: pca
+        parameters:
+          - solver: arpack
+            dense: "false"
+            n_components: 30
+            random_seed: *seeds
