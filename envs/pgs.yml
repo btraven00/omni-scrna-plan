@@ -1,0 +1,45 @@
+---
+name: pgs
+channels:
+  - conda-forge
+dependencies:
+  - python=3.14
+  # PyGenStability is not on conda-forge, so it comes from pip. Every dep it
+  # declares is listed here, leaving pip only the package itself to install
+  # (a conda pip: block cannot pass --no-deps).
+  - numpy
+  - scipy
+  - scikit-learn
+  - pandas
+  - matplotlib      # imported at package import time by data_clustering
+  - tqdm
+  - click
+  - pybind11
+  - threadpoolctl
+  - h5py            # neighbors_h5 reader
+  - polars          # same TSV write path as the other CLUST modules
+  - cmake           # build-time: the generalized_louvain C++ extension
+  - cxx-compiler    # build-time: ditto, pinned toolchain rather than the host's
+  - pip
+  - pip:
+      # Installed from a pinned git commit, NOT from PyPI, because the 0.2.6 and
+      # 0.2.7 releases are broken: both published cp38 wheels ONLY, with no sdist
+      # and no wheels for 3.9-3.14 (0.2.5 shipped the full cp38-cp314 matrix).
+      # So pip on any modern Python resolves no higher than 0.2.5, and a source
+      # build from git is the only way to get anything newer.
+      #
+      # Worth getting: this commit drops `la.inv(v)` from
+      # _compute_spectral_decomp in favour of `v.T` -- eigh returns an
+      # orthonormal basis for symmetric input, so the inverse was redundant.
+      # Measured 12% of `prepare` at 5,000 cells and 17% at 10,000 (the share
+      # grows with n), plus a saved n^2 array (763 MiB at 10k), and v.T is the
+      # more accurate of the two (|inv(v) - v.T| = 7e-13). It also adds `seed=`
+      # to run(), which retires the "No seed" caveat in the module README --
+      # though cluster.py does not pass one yet.
+      #
+      # Verified on python 3.14.6: builds the C++ extension, and the module's
+      # tests/smoke.py passes.
+      #
+      # No [leiden] extra: run() is called without `method`, so the compiled
+      # C++ generalized_louvain does the optimisation.
+      - git+https://github.com/ImperialCollegeLondon/PyGenStability@b08d0dc6a9eadc2cc4b70321196e0e9f57d56741
