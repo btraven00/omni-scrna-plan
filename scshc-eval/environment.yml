@@ -1,0 +1,16 @@
+# Reproducible env for the scSHC cluster-significance eval.
+# r-scshc lives on the almost-conductor prefix.dev channel.
+#   conda env create -f environment.yml   (or: micromamba/pixi)
+#   conda activate scshc-eval
+name: scshc-eval
+channels:
+  - almost-conductor
+  - conda-forge
+  - bioconda
+dependencies:
+  - r-base >=4.5
+  - r-scshc            # pulls scry, dendextend, BiocNeighbors, matrixStats, RSpectra, fastcluster, data.tree, MASS, sfsmisc
+  - r-hdf5r            # read the .h5ad
+  - r-matrix
+  - r-data.table
+  - r-jsonlite
