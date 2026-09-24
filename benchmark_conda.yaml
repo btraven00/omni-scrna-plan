@@ -144,7 +144,7 @@ stages:
         software_environment: "scrapper"
         repository:
           url: https://github.com/omni-scrna/scrapper
-          commit: f201861
+          commit: 64e91bb
           entrypoint: filter
 
   - id: NORM
@@ -413,14 +413,14 @@ stages:
         software_environment: "metrics"
         repository:
           url: https://github.com/omni-scrna/metrics
-          commit: e651115
+          commit: 2b9b1a3
           entrypoint: embedding-r
       #- id: em-metrics-py
       #  name: "Embedding metrics in python"
       #  software_environment: "metrics"
       #  repository:
       #    url: https://github.com/omni-scrna/metrics
-      #    commit: main
+      #    commit: 2b9b1a3
       #    entrypoint: embedding-py
 
   - id: NNG
@@ -470,7 +470,7 @@ stages:
         software_environment: "metrics"
         repository:
           url: https://github.com/omni-scrna/metrics
-          commit: 646f1e4
+          commit: 2b9b1a3
           entrypoint: graph-r
 
   - id: GEOM-M
@@ -489,7 +489,7 @@ stages:
         software_environment: "metrics"
         repository:
           url: https://github.com/omni-scrna/metrics
-          commit: 5efe857
+          commit: 2b9b1a3
           entrypoint: geometry-py
 
   - id: CLUST
@@ -571,7 +571,7 @@ stages:
         software_environment: "metrics"
         repository:
           url: https://github.com/omni-scrna/metrics
-          commit: 257c952
+          commit: 2b9b1a3
           entrypoint: cluster-r
 
   - id: INTG8
@@ -599,21 +599,21 @@ stages:
           entrypoint: harmony-r
         parameters:
           - theta: [0.1, 2]
-#      - id: in-seurat
-#        name: "Seurat IntegrateLayers batch correction"
-#        software_environment: "seurat"
-#        exclude:
-#          - d-pca
-#          - d-annotation
-#          - d-feat-sel
-#          - cntfct
-#        repository:
-#          url: https://github.com/omni-scrna/seurat
-#          commit: db6c6ba
-#          entrypoint: integrate
-#        parameters:
-#          - method: [rpca]
-#            k_anchor: [5, 20]
+      - id: in-seurat
+        name: "Seurat IntegrateLayers batch correction"
+        software_environment: "seurat"
+        exclude:
+          - d-pca
+          - d-annotation
+          - d-feat-sel
+          - cntfct
+        repository:
+          url: https://github.com/omni-scrna/seurat
+          commit: db6c6ba
+          entrypoint: integrate
+        parameters:
+          - method: [rpca]
+            k_anchor: [5, 20]
       - id: in-scanorama
         name: "Scanorama batch correction"
         software_environment: "integrate-py"
@@ -647,7 +647,7 @@ stages:
         software_environment: "metrics"
         repository:
           url: https://github.com/omni-scrna/metrics
-          commit: f0a85a3
+          commit: 2b9b1a3
           entrypoint: integration-r
         parameters:
           - k: 20 # knn size for CellMixS cms/entropy/isi (evalIntegration)
@@ -660,7 +660,7 @@ stages:
         software_environment: "metrics"
         repository:
           url: https://github.com/omni-scrna/metrics
-          commit: f0a85a3
+          commit: 2b9b1a3
           entrypoint: integration-py
         parameters:
           - n_neighbors: 90 # knn graph size for clisi_knn (pynndescent)
@@ -825,5 +825,5 @@ stages:
         software_environment: "metrics"
         repository:
           url: https://github.com/omni-scrna/metrics
-          commit: c8d28ac
+          commit: 2b9b1a3
           entrypoint: normalization-r
