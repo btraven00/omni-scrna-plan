@@ -65,6 +65,9 @@ software_environments:
   rcppml:
     name: RcppML env (r-rcppml 1.0.0 from the almost-conductor channel; ships RcppML_gpu.so)
     conda: envs/rcppml.yml
+  randomly:
+    name: randomly (RMT gene selection)
+    conda: envs/randomly.yml
 
 stages:
   - id: DATA
@@ -230,6 +233,21 @@ stages:
           - flavor: ["pearson_residuals"]
             number_selected: 2000
           #- flavor: ["pearson_residuals", "scanpy_seurat", "scanpy_cell_ranger"]
+      # Random Matrix Theory gene selection (Aparicio et al. 2020); the gene count
+      # is decided by the method at --fdr, not fixed at 2000.
+      # Does not scale: O(n_cells^2) memory, O(n_cells^3) time, and the module
+      # refuses more than 20000 cells. Use the GPU port (--backend cupy) for larger datasets.
+      - id: fe-randomly
+        name: "randomly RMT gene selection"
+        software_environment: "randomly"
+        exclude:
+          - d-pca
+        repository:
+          url: https://github.com/btraven00/omni-randomly
+          commit: 49eba2f
+          entrypoint: select
+        parameters:
+          - fdr: 0.001
 
   - id: PCA
     resources:
