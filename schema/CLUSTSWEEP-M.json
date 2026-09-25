@@ -1,0 +1,10 @@
+{
+  "stage": "CLUSTSWEEP-M",
+  "version": "0.1.0",
+  "benchmark": "omni-scrna/split-stages-plan",
+  "args": [
+    { "flag": "--clusters_sweep_tsv", "type": "path", "help": "Wide TSV (gz) of partitions: cell_id + one column per sweep run" },
+    { "flag": "--sweep_info_tsv", "type": "path", "help": "TSV of sweep runs (column, resolution, seed, k, round)" },
+    { "flag": "--rawdata_clusters_truth", "type": "path", "help": "TSV of ground-truth cluster labels (cell_id, truths)" }
+  ]
+}

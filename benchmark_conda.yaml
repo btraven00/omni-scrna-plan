@@ -599,7 +599,7 @@ stages:
         software_environment: "clustsweep"
         repository:
           url: https://github.com/omni-scrna/clustsweep
-          commit: d690ca9  # omni-scrna/clustsweep does not exist yet: push it, then keep this pin
+          commit: 0ed16d4  # omni-scrna/clustsweep does not exist yet: push it, then keep this pin
           entrypoint: sweep
         parameters:
           - backend: igraph-modularity
@@ -609,6 +609,27 @@ stages:
             # the rule gets no threads: directive, so OMP_NUM_THREADS is 1; like
             # pc-scrapper's num_threads. Changes speed only, never the output.
             workers: 8
+
+  # CLUSTSWEEP-M: the accuracy curve of a sweep along k, and its summary
+  # (smoothed peak to rank arms by; ARI at the truth's label count x 1/4..2).
+  - id: CLUSTSWEEP-M
+    inputs:
+      - clusters_sweep_tsv
+      - sweep_info_tsv
+      - rawdata_clusters_truth
+    outputs:
+      - id: sweep_curve_tsv
+        path: "{dataset}_sweep_curve.tsv"
+      - id: sweep_summary_json
+        path: "{dataset}_sweep_summary.json"
+    modules:
+      - id: cs-metrics
+        name: "Sweep accuracy curve"
+        software_environment: "clustsweep"
+        repository:
+          url: https://github.com/omni-scrna/clustsweep
+          commit: 0ed16d4
+          entrypoint: curve
 
   - id: INTG8
     inputs:
