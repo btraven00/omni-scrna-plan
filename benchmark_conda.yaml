@@ -62,6 +62,9 @@ software_environments:
   rapids_singlecell:
     name: rapids-singlecell (GPU)
     conda: envs/rapids-singlecell.yml
+  clustsweep:
+    name: clustsweep (igraph + leidenalg resolution sweeps)
+    conda: envs/clustsweep.yml
   rcppml:
     name: RcppML env (r-rcppml 1.0.0 from the almost-conductor channel; ships RcppML_gpu.so)
     conda: envs/rcppml.yml
@@ -573,6 +576,39 @@ stages:
           url: https://github.com/omni-scrna/metrics
           commit: 2b9b1a3
           entrypoint: cluster-r
+
+  # CLUSTSWEEP: one clusterer swept over its own resolution scale, so arms are
+  # compared along the number of clusters k instead of at a shared resolution,
+  # which means different things per implementation (modularity vs CPM, graph
+  # weights). Label-free: rounds of resolutions are bisected towards even
+  # log-k coverage within a run budget (a wall-clock cap only truncates the
+  # deterministic schedule). Own output ids, scored by CLUSTSWEEP-M.
+  - id: CLUSTSWEEP
+    resources:
+      cores: 8
+    inputs:
+      - neighbors_h5
+    outputs:
+      - id: clusters_sweep_tsv
+        path: "{dataset}_clusters_sweep.tsv.gz"
+      - id: sweep_info_tsv
+        path: "{dataset}_sweep_info.tsv"
+    modules:
+      - id: cs-igraph
+        name: "Leiden resolution sweep (igraph, modularity; same call as cl-scanpy)"
+        software_environment: "clustsweep"
+        repository:
+          url: https://github.com/omni-scrna/clustsweep
+          commit: d690ca9  # omni-scrna/clustsweep does not exist yet: push it, then keep this pin
+          entrypoint: sweep
+        parameters:
+          - backend: igraph-modularity
+            seeds: 5
+            max_runs: 400
+            max_seconds: 1800
+            # the rule gets no threads: directive, so OMP_NUM_THREADS is 1; like
+            # pc-scrapper's num_threads. Changes speed only, never the output.
+            workers: 8
 
   - id: INTG8
     inputs:
