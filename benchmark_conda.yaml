@@ -4,7 +4,7 @@ description: This benchmark lays out stages for each step of an scRNA-seq pipeli
 benchmarker: "Mark Robinson <mark.robinson@mls.uzh.ch>"
 
 # Benchmark configuration
-version: "0.1.2"
+version: "0.2.0"
 api_version: "0.4.0"
 
 provenance:
@@ -71,6 +71,12 @@ software_environments:
   randomly_gpu:
     name: randomly GPU (cupy eigh; linux-64, CUDA 12)
     conda: envs/randomly-gpu.yml
+  bipca:
+    name: bipca (PyPI bipca 1.1.0, CPU torch)
+    conda: envs/bipca.yml
+  scvi:
+    name: scvi-tools (CPU)
+    conda: envs/scvi.yml
 
 stages:
   - id: DATA
@@ -861,6 +867,54 @@ stages:
         parameters:
           - factorization_type: ["newwave", "scgbm", "glmpca"]
             n_dim: 4
+            random_seed: 42
+
+
+  # RDIMR: raw dimensionality reduction, for methods that take raw counts and do
+  # their own normalization. Reads layers['counts'] from rawdata_h5ad for the
+  # cells and genes FILT kept: no NORM, no FEAT upstream, so it runs once per
+  # dataset, and any gene selection is the module's own. Same output ids as PCA,
+  # so downstream stages consume it like any other embedding.
+  - id: RDIMR
+    resources:
+      cores: 4
+    inputs:
+      - rawdata_h5ad
+      - filtered_cellids
+      - filtered_featureids
+    outputs:
+      - id: embedding_tsv
+        path: "{dataset}_embedding.tsv"
+      - id: loadings_tsv
+        path: "{dataset}_loadings.tsv"
+    modules:
+      # Biwhitened PCA (Stanley et al.): Sinkhorn under a quadratic
+      # mean-variance fit, truncated at the Marchenko-Pastur edge, so k is
+      # derived, not fixed. Runs on every FILT gene: it needs the noise genes to
+      # place the MP edge. --min_gene_cells drops near-empty ones on top.
+      - id: rd-bipca
+        name: "BiPCA biwhitened PCA"
+        software_environment: "bipca"
+        repository:
+          url: https://github.com/omni-scrna/bipca
+          commit: 96c0a47
+          entrypoint: pca
+        parameters:
+          - random_seed: 42
+      # scVI latent space on its own seurat_v3 HVGs (scvi-tools' recipe), so its
+      # genes are not a FEAT arm's. The decoder is a nonlinear MLP with no linear
+      # gene loadings, so loadings_tsv is written NaN (LinearSCVI would have them).
+      - id: rd-scvi
+        name: "scVI latent representation"
+        software_environment: "scvi"
+        repository:
+          url: https://github.com/omni-scrna/scvi
+          commit: cb52eda
+          entrypoint: dimred
+        parameters:
+          - n_top_genes: 2000
+            n_latent: 10
+            max_epochs: 400
             random_seed: 42
 
   - id: NORM-M
