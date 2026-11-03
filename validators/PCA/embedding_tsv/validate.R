@@ -8,12 +8,12 @@ validate_file <- function(path) {
   tryCatch({
     df <- read.table(path, header = TRUE, sep = "\t", check.names = FALSE)
 
-    if (colnames(df)[1] != "PC1") {
-      stop(sprintf("first column must be 'PC1', got '%s'", colnames(df)[1]))
+    if (!identical(colnames(df)[1:2], c("cell_id", "PC1"))) {
+      stop(sprintf("columns must start cell_id, PC1; got %s", paste(head(colnames(df), 2), collapse = ", ")))
     }
     if (nrow(df) == 0) stop("empty file")
     if (ncol(df) < 10) stop("too few columns")
-    if (anyNA(df[1, ])) stop("first data row contains non-numeric values in PC columns")
+    if (anyNA(df[1, -1])) stop("first data row contains non-numeric values in PC columns")
 
   }, error = function(e) {
     message(sprintf("FAIL\t%s\t%s", path, e$message))
@@ -23,6 +23,8 @@ validate_file <- function(path) {
   if (ok) {
     message(sprintf("OK\t%s", path))
   }
+  ok
 }
 
-invisible(lapply(args, validate_file))
+ok <- vapply(args, validate_file, logical(1))
+if (!all(ok)) quit(status = 1)

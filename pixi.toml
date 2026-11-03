@@ -4,14 +4,12 @@ version = "0.1.0"
 channels = ["conda-forge"]
 platforms = ["linux-64", "osx-arm64"]
 
-[feature.validation.tasks]
-validate-artifacts = "validators/all.sh"
-
 [feature.validation.dependencies]
 r-readr = "*"
 r-tibble = "*"
 python = "*"
 h5py = "*"
+scanpy = "*"
 
 # Plan validation: omnibenchmark pinned to the v0.7.0 tag.
 [feature.plan.dependencies]
