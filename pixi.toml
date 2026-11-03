@@ -13,7 +13,7 @@ r-tibble = "*"
 python = "*"
 h5py = "*"
 
-# Plan validation: omnibenchmark from its main branch.
+# Plan validation: omnibenchmark pinned to the v0.7.0 tag.
 [feature.plan.dependencies]
 python = ">=3.12,<3.14"
 pip = "*"
@@ -26,7 +26,7 @@ conda = "*"
 go-yq = "*"
 
 [feature.plan.pypi-dependencies]
-omnibenchmark = { git = "https://github.com/omnibenchmark/omnibenchmark.git", branch = "gather-lean-3" }
+omnibenchmark = { git = "https://github.com/omnibenchmark/omnibenchmark.git", tag = "v0.7.0" }
 
 [feature.plan.tasks]
 validate-plan = "ob validate plan benchmark_conda.yaml"
