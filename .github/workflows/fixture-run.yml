@@ -72,11 +72,13 @@ jobs:
             --out-dir out_ci --cores 4 --yes
 
       # Validators need python3/Rscript with h5py, scanpy, readr: the validation
-      # env first on PATH. ob reads pass/fail from each validator's exit code.
+      # env first on PATH. Call the plan env's ob directly: `pixi run -e plan`
+      # would put the plan env (no h5py) back in front. ob reads pass/fail from
+      # each validator's exit code.
       - name: Run output validators
         run: |
           export PATH="$PWD/.pixi/envs/validation/bin:$PATH"
-          pixi run -e plan ob validate outputs benchmark_ci.yaml --out-dir out_ci -c 4
+          .pixi/envs/plan/bin/ob validate outputs benchmark_ci.yaml --out-dir out_ci -c 4
           fails=$(grep -l '"exit_code": [1-9]' $(find out_ci/.validation -name '*.json' -not -path '*/scripts/*') 2>/dev/null | wc -l)
           echo "validator failures: $fails"
           [ "$fails" -eq 0 ]
