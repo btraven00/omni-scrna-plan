@@ -927,6 +927,8 @@ stages:
   # members with their reference by lineage (path prefix up to FEAT) instead.
   # embedding_tsv has other producers (ISOMAP, CNTFCT, RDIMR); the module skips them.
   - id: PCA_M
+    resources:
+      cores: 16   # parallel-analysis shuffles run one per core
     gather:
       - from: embedding_tsv
         group_by: DATA
@@ -941,7 +943,7 @@ stages:
         software_environment: "metrics"
         repository:
           url: https://github.com/omni-scrna/metrics
-          commit: e9e2979  # api-0.8.0
+          commit: c90d772  # api-0.8.0
           entrypoint: pca-gather
         parameters:
           - reference_module: pc_exact
@@ -962,5 +964,5 @@ stages:
         software_environment: "report"
         repository:
           url: https://github.com/omni-scrna/metrics
-          commit: e9e2979  # api-0.8.0
+          commit: c90d772  # api-0.8.0
           entrypoint: pca-report
