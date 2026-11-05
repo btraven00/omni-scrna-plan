@@ -932,8 +932,6 @@ stages:
         group_by: DATA
       - from: loadings_tsv
         group_by: DATA
-      - from: normalized_selected_h5   # total variance, for variance explained
-        group_by: DATA
     outputs:
       - id: pca_metrics_tsv
         path: "{DATA}_pca_metrics.tsv"
@@ -943,7 +941,7 @@ stages:
         software_environment: "metrics"
         repository:
           url: https://github.com/omni-scrna/metrics
-          commit: d8a9d1e  # api-0.8.0
+          commit: e9e2979  # api-0.8.0
           entrypoint: pca-gather
         parameters:
           - reference_module: pc_exact
@@ -964,5 +962,5 @@ stages:
         software_environment: "report"
         repository:
           url: https://github.com/omni-scrna/metrics
-          commit: d8a9d1e  # api-0.8.0
+          commit: e9e2979  # api-0.8.0
           entrypoint: pca-report

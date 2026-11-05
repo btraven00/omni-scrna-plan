@@ -6,4 +6,7 @@ picks:
   FILT: {'*': first}
   NORM: {'*': first}
   FEAT: {'*': first}
-  PCA:  {pc_rapids: first, pc_rcppml_gpu: first, pc_rcppml_nmf_gpu: first}
+  PCA:  {pc_exact: first, pc_rapids: first, pc_rcppml_gpu: first, pc_rcppml_nmf_gpu: first}
+  # gathers: cutting every producer of a gathered id fails the DAG, so keep them
+  PCA_M: {'*': all}
+  REPORT: {'*': all}

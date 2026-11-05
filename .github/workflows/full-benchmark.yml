@@ -49,16 +49,16 @@ jobs:
   #         frozen: false
   #         locked: false
 
-  #     - name: Derive trimmed CI plan
-  #       # via pixi so trim-plan.sh's `yq` resolves to the in-env go-yq, not the
+  #     - name: Derive fixture plan
+  #       # via pixi so fixture-plan.sh's `yq` resolves to the in-env go-yq, not the
   #       # host snap (which can't run inside the runner's systemd cgroup).
-  #       run: pixi run -e plan ci/trim-plan.sh > benchmark_ci.yaml
+  #       run: pixi run -e plan ci/fixture-plan.sh > benchmark_ci.yaml
 
   #     - name: Run trimmed benchmark on fixture (fail-fast)
   #       run: |
   #         mkdir -p "$OB_FIXTURE_DIR"
-  #         pixi run -e plan ob run benchmark_ci.yaml \
-  #           --unpinned --out-dir "$OB_FIXTURE_DIR" --cores "${{ inputs.cores || '20' }}"
+  #         pixi run -e plan ob run benchmark_ci.yaml --filter filters/ci-until-pca.yaml \
+  #           --out-dir "$OB_FIXTURE_DIR" --cores "${{ inputs.cores || '20' }}" --yes
 
   # --- The full run ---------------------
   full:

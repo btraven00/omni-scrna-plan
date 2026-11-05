@@ -11,3 +11,5 @@ picks:
   NORM: {'*': all}
   FEAT: {'*': all}
   PCA:  {'*': all}
+  PCA_M: {'*': all}   # gathers must keep a producer or the DAG fails
+  REPORT: {'*': all}

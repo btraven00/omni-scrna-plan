@@ -1,9 +1,10 @@
 name: Fixture run
 
-# Executes a trimmed version of the benchmark (every module, one parameter
-# combo each) on the tiny committed fixture in fixtures/DATA. Proves the
-# modules still execute and their stage contracts line up, without the 817 MB
-# real dataset.
+# Runs the plan on the tiny committed fixture in fixtures/DATA (ci/fixture-plan.sh
+# swaps DATA for it), selected by filters/ci-until-pca.yaml: first combo per
+# module, DATA..PCA plus the PCA_M/REPORT gathers, CPU arms. Then runs the
+# declared output validators. Proves the modules execute and their stage
+# contracts line up, without the 817 MB real dataset.
 
 on:
   push:
@@ -27,12 +28,12 @@ jobs:
       - name: Set up pixi
         uses: prefix-dev/setup-pixi@v0.8.10
         with:
-          environments: plan
+          environments: plan validation
           frozen: false
           locked: false
 
-      - name: Derive trimmed CI plan
-        run: ci/trim-plan.sh > benchmark_ci.yaml
+      - name: Derive fixture plan
+        run: pixi run -e plan ci/fixture-plan.sh > benchmark_ci.yaml
 
       # Cache the per-module conda envs snakemake builds (the slow part).
       # Keyed on the env specs + the omni-data pin so it invalidates on change.
@@ -44,7 +45,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: out_ci/.snakemake/conda
-          key: snakemake-conda-${{ runner.os }}-${{ hashFiles('envs/*.yml', 'envs/*.yaml', 'ci/trim-plan.sh') }}
+          key: snakemake-conda-${{ runner.os }}-${{ hashFiles('envs/*.yml', 'envs/*.yaml', 'ci/fixture-plan.sh', 'filters/ci-until-pca.yaml') }}
           # Partial restore on an exact-key miss: snakemake reuses every
           # hash-named env that still matches and rebuilds only the changed
           # one(s), instead of re-solving all modules from scratch.
@@ -55,20 +56,30 @@ jobs:
       # env-build OOM from a module OOM, and gives us a cache to save.
       - name: Build module conda envs
         run: |
-          pixi run -e plan ob run benchmark_ci.yaml \
-            --unpinned --out-dir out_ci --cores 4 -- --conda-create-envs-only
+          pixi run -e plan ob run benchmark_ci.yaml --filter filters/ci-until-pca.yaml \
+            --out-dir out_ci --cores 4 --yes -- --conda-create-envs-only
 
       - name: Save module conda envs
         if: always() && steps.conda-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: out_ci/.snakemake/conda
-          key: snakemake-conda-${{ runner.os }}-${{ hashFiles('envs/*.yml', 'envs/*.yaml', 'ci/trim-plan.sh') }}
+          key: snakemake-conda-${{ runner.os }}-${{ hashFiles('envs/*.yml', 'envs/*.yaml', 'ci/fixture-plan.sh', 'filters/ci-until-pca.yaml') }}
 
-      - name: Run trimmed benchmark on fixture
+      - name: Run fixture benchmark (DATA..PCA + PCA_M/REPORT)
         run: |
-          pixi run -e plan ob run benchmark_ci.yaml \
-            --unpinned --out-dir out_ci --cores 4
+          pixi run -e plan ob run benchmark_ci.yaml --filter filters/ci-until-pca.yaml \
+            --out-dir out_ci --cores 4 --yes
+
+      # Validators need python3/Rscript with h5py, scanpy, readr: the validation
+      # env first on PATH. ob reads pass/fail from each validator's exit code.
+      - name: Run output validators
+        run: |
+          export PATH="$PWD/.pixi/envs/validation/bin:$PATH"
+          pixi run -e plan ob validate outputs benchmark_ci.yaml --out-dir out_ci -c 4
+          fails=$(grep -l '"exit_code": [1-9]' $(find out_ci/.validation -name '*.json' -not -path '*/scripts/*') 2>/dev/null | wc -l)
+          echo "validator failures: $fails"
+          [ "$fails" -eq 0 ]
 
       - name: Summarize outputs
         if: always()
