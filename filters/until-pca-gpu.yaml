@@ -1,0 +1,9 @@
+# until-pca, GPU arms only. Run on rolandgarros with --with-capability gpu.
+# Usage: ob run benchmark_conda.yaml --filter filters/until-pca-gpu.yaml --with-capability gpu
+# 44d965bf = d_integration's be1 combo; it changes if that parameter set changes.
+picks:
+  DATA: {d_integration: ["44d965bf"]}
+  FILT: {'*': first}
+  NORM: {'*': first}
+  FEAT: {'*': first}
+  PCA:  {pc_rapids: first, pc_rcppml_gpu: first, pc_rcppml_nmf_gpu: first}
