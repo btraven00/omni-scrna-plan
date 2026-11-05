@@ -62,6 +62,9 @@ software_environments:
   # and are pruned from the DAG unless the run passes `--with-capability gpu`.
   # That field needs omnibenchmark >= 0.7.0; older versions ignore it and would
   # schedule these modules on a CPU host; comment the modules by hand if you're on 0.6.0
+  report:
+    name: Quarto + R (knitr) for the REPORT gather
+    conda: envs/report.yaml
   rapids_singlecell:
     name: rapids-singlecell (GPU)
     conda: envs/rapids-singlecell.yml
@@ -293,6 +296,22 @@ stages:
             random_seed: 42
           - solver: [randomized]
             dense: "true"
+            n_components: 50
+            random_seed: 42
+      # Exact reference for PCA_M: dense LAPACK SVD in float64, one parameter
+      # set so PCA_M finds exactly one reference per input matrix.
+      - id: pc_exact
+        requires: {runs_pca: "yes"}
+        name: "scanpy PCA, exact reference (dense LAPACK SVD, float64)"
+        software_environment: "scanpy"
+        repository:
+          url: https://github.com/omni-scrna/scanpy
+          commit: 754052a  # api-0.8.0: --output id=PATH
+          entrypoint: pca
+        parameters:
+          - solver: full
+            dense: "true"
+            dtype: float64
             n_components: 50
             random_seed: 42
       - id: pc_scrapper
@@ -902,3 +921,43 @@ stages:
           url: https://github.com/omni-scrna/metrics
           commit: 2b9b1a3
           entrypoint: normalization-r
+
+  # PCA_M: every PCA arm vs pc_exact on the same input matrix. group_by groups by
+  # ancestor MODULE id, so a FEAT group would mix NORM branches; the module pairs
+  # members with their reference by lineage (path prefix up to FEAT) instead.
+  # embedding_tsv has other producers (ISOMAP, CNTFCT, RDIMR); the module skips them.
+  - id: PCA_M
+    gather:
+      - from: embedding_tsv
+        group_by: DATA
+      - from: loadings_tsv
+        group_by: DATA
+    outputs:
+      - id: pca_metrics_tsv
+        path: "{DATA}_pca_metrics.tsv"
+    modules:
+      - id: pca_metrics_py
+        name: "PCA accuracy vs exact reference"
+        software_environment: "metrics"
+        repository:
+          url: https://github.com/omni-scrna/metrics
+          commit: 78f715d  # api-0.8.0
+          entrypoint: pca-gather
+        parameters:
+          - reference_module: pc_exact
+
+  # REPORT: one Quarto HTML over every PCA_M table (global gather).
+  - id: REPORT
+    gather:
+      - from: pca_metrics_tsv
+    outputs:
+      - id: report_html
+        path: "pca_report.html"
+    modules:
+      - id: pca_report
+        name: "PCA accuracy report (Quarto)"
+        software_environment: "report"
+        repository:
+          url: https://github.com/omni-scrna/metrics
+          commit: 78f715d  # api-0.8.0
+          entrypoint: pca-report
