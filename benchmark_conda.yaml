@@ -943,10 +943,13 @@ stages:
         software_environment: "metrics"
         repository:
           url: https://github.com/omni-scrna/metrics
-          commit: 78c78de  # api-0.8.0
+          commit: 867d54d  # api-0.8.0
           entrypoint: pca-gather
         parameters:
           - reference_module: pc_exact
+            pa_n_perm: 20        # parallel-analysis shuffles per FEAT matrix
+            pa_quantile: 0.95    # Glorfeld 1995
+            random_seed: 42
 
   # REPORT: one Quarto HTML over every PCA_M table (global gather).
   - id: REPORT
@@ -961,5 +964,5 @@ stages:
         software_environment: "report"
         repository:
           url: https://github.com/omni-scrna/metrics
-          commit: 78c78de  # api-0.8.0
+          commit: 867d54d  # api-0.8.0
           entrypoint: pca-report
