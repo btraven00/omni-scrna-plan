@@ -97,7 +97,7 @@ stages:
         software_environment: r_conda
         repository:
           url: https://github.com/omni-scrna/1-data
-          commit: 4e4f1a5
+          commit: 1606435  # api-0.8.0: --output id=PATH
         parameters:
           - dataset_name: "be1"
             batch_var: Sample
@@ -113,7 +113,7 @@ stages:
         software_environment: r_conda
         repository:
           url: https://github.com/omni-scrna/1-data
-          commit: 4e4f1a5
+          commit: 1606435  # api-0.8.0: --output id=PATH
         parameters:
           - dataset_name: "sc-mix"
             batch_var: null
@@ -125,7 +125,7 @@ stages:
         software_environment: r_conda
         repository:
           url: https://github.com/omni-scrna/1-data
-          commit: 4e4f1a5
+          commit: 1606435  # api-0.8.0: --output id=PATH
         parameters:
           - dataset_name: "be1-subset"
             batch_var: Sample
@@ -137,7 +137,7 @@ stages:
         software_environment: r_conda
         repository:
           url: https://github.com/omni-scrna/1-data
-          commit: 4e4f1a5
+          commit: 1606435  # api-0.8.0: --output id=PATH
         parameters:
           - dataset_name: "cb"
             batch_var: species
