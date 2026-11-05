@@ -82,13 +82,13 @@ stages:
   - id: DATA
     outputs:
       - id: rawdata_h5ad
-        path: "{dataset}.h5ad"
+        path: "{module.id}.h5ad"
       - id: rawdata_clusters_truth
-        path: "{dataset}.clusters_truth.tsv"
+        path: "{module.id}.clusters_truth.tsv"
       - id: rawdata_clusters_truth_num
-        path: "{dataset}.clusters_truth_num.txt"
+        path: "{module.id}.clusters_truth_num.txt"
       - id: properties_info
-        path: "{dataset}_properties.yaml"
+        path: "{module.id}_properties.yaml"
     modules:
       - id: d_integration
         name: "R-based dataset downloads (integration collection)"
@@ -145,11 +145,11 @@ stages:
       - properties_info
     outputs:
       - id: filtered_cellids
-        path: "{dataset}_cellids.txt.gz"
+        path: "{module.id}_cellids.txt.gz"
       - id: filtered_featureids
-        path: "{dataset}_featureids.txt.gz"
+        path: "{module.id}_featureids.txt.gz"
       - id: size_factor_tsv
-        path: "{dataset}_size_factors.tsv"
+        path: "{module.id}_size_factors.tsv"
     modules:
       - id: fi_scrapper
         name: "scrapper-style filtering"
@@ -166,7 +166,7 @@ stages:
       - filtered_featureids
     outputs:
       - id: normalized_h5
-        path: "{dataset}_normalized.h5"
+        path: "{module.id}_normalized.h5"
     modules:
       - id: nr_scrapper
         name: "scrapper-based normalization"
@@ -204,7 +204,7 @@ stages:
       - properties_info
     outputs:
       - id: normalized_selected_h5
-        path: "{dataset}_normalized_selected.h5"
+        path: "{module.id}_normalized_selected.h5"
     modules:
       - id: fe_seurat
         name: "seurat-based gene selection"
@@ -262,9 +262,9 @@ stages:
       - normalized_selected_h5
     outputs:
       - id: embedding_tsv
-        path: "{dataset}_embedding.tsv"
+        path: "{module.id}_embedding.tsv"
       - id: loadings_tsv
-        path: "{dataset}_loadings.tsv"
+        path: "{module.id}_loadings.tsv"
     modules:
       - id: pc_scanpy
         name: "scanpy PCA"
@@ -407,9 +407,9 @@ stages:
       - normalized_selected_h5
     outputs:
       - id: embedding_tsv
-        path: "{dataset}_embedding.tsv"
+        path: "{module.id}_embedding.tsv"
       - id: geodesics_h5
-        path: "{dataset}_geodesics.h5"
+        path: "{module.id}_geodesics.h5"
     modules:
       - id: dr_isomap
         name: "sklearn (landmark) Isomap"
@@ -431,7 +431,7 @@ stages:
       - rawdata_clusters_truth
     outputs:
       - id: embedding_metrics
-        path: "{dataset}_embedding_metrics.json"
+        path: "{module.id}_embedding_metrics.json"
     modules:
       - id: em_metrics_r
         name: "Embedding metrics in R"
@@ -453,7 +453,7 @@ stages:
       - embedding_tsv
     outputs:
       - id: neighbors_h5
-        path: "{dataset}_neighbors.h5"
+        path: "{module.id}_neighbors.h5"
     modules:
       - id: nn_scanpy
         name: "scanpy KNN graph"
@@ -488,7 +488,7 @@ stages:
       - rawdata_clusters_truth
     outputs:
       - id: graph_metrics
-        path: "{dataset}_graph_metrics.json"
+        path: "{module.id}_graph_metrics.json"
     modules:
       - id: nn_metrics_r
         name: "Graph metrics in R"
@@ -505,9 +505,9 @@ stages:
       - neighbors_h5
     outputs:
       - id: geometry_metrics
-        path: "{dataset}_geometry_metrics.json"
+        path: "{module.id}_geometry_metrics.json"
       - id: geometry_pair_summary
-        path: "{dataset}_geometry_pair_summary.tsv"
+        path: "{module.id}_geometry_pair_summary.tsv"
     modules:
       - id: geometry_metrics_py
         name: "Pairwise representation geometry metrics"
@@ -522,7 +522,7 @@ stages:
       - neighbors_h5
     outputs:
       - id: clusters_tsv
-        path: "{dataset}_clusters.tsv"
+        path: "{module.id}_clusters.tsv"
     modules:
       - id: cl_scanpy
         name: "scanpy Leiden clustering"
@@ -589,7 +589,7 @@ stages:
       - rawdata_clusters_truth
     outputs:
       - id: cluster_metrics
-        path: "{dataset}_cluster_metrics.json"
+        path: "{module.id}_cluster_metrics.json"
     modules:
       - id: cl_metrics_r
         name: "Partition metrics in R"
@@ -608,7 +608,7 @@ stages:
       - properties_info
     outputs:
       - id: corrected_tsv
-        path: "{dataset}_corrected.tsv"
+        path: "{module.id}_corrected.tsv"
     modules:
       - id: in_harmony
         name: "Harmony batch correction"
@@ -665,7 +665,7 @@ stages:
       - clusters_corrected_tsv
     outputs:
       - id: integration_metrics
-        path: "{dataset}_integration_metrics.json"
+        path: "{module.id}_integration_metrics.json"
     modules:
       - id: in_metrics_r
         name: "Integration metrics in R"
@@ -696,7 +696,7 @@ stages:
       - corrected_tsv
     outputs:
       - id: neighbors_corrected_h5
-        path: "{dataset}_neighbors.h5"
+        path: "{module.id}_neighbors.h5"
     modules:
       - id: nn_scanpy_c
         name: "scanpy KNN graph (corrected embedding)"
@@ -715,7 +715,7 @@ stages:
       - neighbors_corrected_h5
     outputs:
       - id: clusters_corrected_tsv
-        path: "{dataset}_clusters.tsv"
+        path: "{module.id}_clusters.tsv"
     modules:
       - id: cl_scanpy_c
         name: "scanpy Leiden clustering (corrected embedding)"
@@ -734,7 +734,7 @@ stages:
       - embedding_tsv
     outputs:
       - id: clusters_embedding_tsv
-        path: "{dataset}_clusters.tsv"
+        path: "{module.id}_clusters.tsv"
     modules:
       - id: cluster_optics
         name: "scikit-learn OPTICS clustering"
@@ -786,7 +786,7 @@ stages:
       - normalized_selected_h5
     outputs:
       - id: annotations_tsv
-        path: "{dataset}_annotations.tsv"
+        path: "{module.id}_annotations.tsv"
     modules:
       - id: an_singler
         name: singler annotation
@@ -803,7 +803,7 @@ stages:
       - rawdata_clusters_truth
     outputs:
       - id: annotation_metrics
-        path: "{dataset}_annotation_metrics.json"
+        path: "{module.id}_annotation_metrics.json"
     modules:
       - id: an_metrics_r
         name: "Annotation metrics in R"
@@ -822,9 +822,9 @@ stages:
       - filtered_cellids
     outputs:
       - id: embedding_tsv
-        path: "{dataset}_embedding.tsv"
+        path: "{module.id}_embedding.tsv"
       - id: loadings_tsv
-        path: "{dataset}_loadings.tsv"
+        path: "{module.id}_loadings.tsv"
     modules:
       - id: cntfct
         name: count-factor
@@ -852,9 +852,9 @@ stages:
       - filtered_featureids
     outputs:
       - id: embedding_tsv
-        path: "{dataset}_embedding.tsv"
+        path: "{module.id}_embedding.tsv"
       - id: loadings_tsv
-        path: "{dataset}_loadings.tsv"
+        path: "{module.id}_loadings.tsv"
     modules:
       # Biwhitened PCA (Stanley et al.): Sinkhorn under a quadratic
       # mean-variance fit, truncated at the Marchenko-Pastur edge, so k is
@@ -905,7 +905,7 @@ stages:
       - size_factor_tsv
     outputs:
       - id: normalization_metrics
-        path: "{dataset}_normalization_metrics.json"
+        path: "{module.id}_normalization_metrics.json"
     modules:
       - id: nm_metrics_r
         name: "Normalization metrics in R"
