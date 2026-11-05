@@ -1,6 +1,7 @@
 name: report
 channels:
   - conda-forge
+  - bioconda
   - nodefaults
 dependencies:
   - quarto *
@@ -9,3 +10,4 @@ dependencies:
   - r-ggplot2 *
   - r-knitr *
   - r-rmarkdown *
+  - bioconductor-pcatools *  # findElbowPoint for the scree section
