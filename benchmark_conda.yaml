@@ -161,7 +161,7 @@ stages:
         software_environment: "scrapper"
         repository:
           url: https://github.com/omni-scrna/scrapper
-          commit: 64e91bb
+          commit: 2a83f79  # api-0.8.0: --output id=PATH
           entrypoint: filter
 
   - id: NORM
@@ -180,7 +180,7 @@ stages:
         software_environment: "scrapper"
         repository:
           url: https://github.com/omni-scrna/scrapper
-          commit: f201861
+          commit: 2a83f79  # api-0.8.0: --output id=PATH
           entrypoint: normalize
       - id: nr_scanpy
         name: "Python-based scRNA-seq normalization methods"
@@ -230,7 +230,7 @@ stages:
         software_environment: "scrapper"
         repository:
           url: https://github.com/omni-scrna/scrapper
-          commit: f201861
+          commit: 2a83f79  # api-0.8.0: --output id=PATH
           entrypoint: select
         parameters:
           - number_selected: 2000
@@ -292,7 +292,7 @@ stages:
         software_environment: "scrapper"
         repository:
           url: https://github.com/omni-scrna/scrapper
-          commit: d641869
+          commit: 2a83f79  # api-0.8.0: --output id=PATH
           entrypoint: pca
         parameters:
           - solver: [irlba]
@@ -545,7 +545,7 @@ stages:
         software_environment: "scrapper"
         repository:
           url: https://github.com/omni-scrna/scrapper
-          commit: 8a1cfd8
+          commit: 2a83f79  # api-0.8.0: --output id=PATH
           entrypoint: cluster
         parameters:
           - flavor: ["leiden_modularity", "leiden_cpm", "multilevel", "walktrap"]
