@@ -45,7 +45,7 @@ if [[ "$(DS="$data_stage" yq '[.stages[] | select(.id == strenv(DS))] | length' 
   exit 1
 fi
 
-# The in-seurat RPCA module needs k_anchor=20 (not the collapsed-to-first 5) on
+# The in_seurat RPCA module needs k_anchor=20 (not the collapsed-to-first 5) on
 # the fixture: cross-type sample pairs (PBMC vs cell lines) yield few anchors, and
 # at k_anchor=5 a pair drops below Seurat's k.weight and integration errors. 20 is
 # an author-declared option ([5,20]) and clears it. Verified on real fixture inputs.
@@ -55,7 +55,7 @@ trimmed="$(
     | .software_environments.omni_data = {"name": "omni-data fixture loader", "conda": "envs/omni-data.yml"}
     | (.stages[].modules[] | select(has("parameters")) | .parameters) |= [.[0]]
     | (.stages[].modules[] | select(has("parameters")) | .parameters[][] | select(tag == "!!seq")) |= .[0]
-    | (.stages[] | select(.id == "INTG8").modules[] | select(.id == "in-seurat").parameters[0].k_anchor) = 20
+    | (.stages[] | select(.id == "INTG8").modules[] | select(.id == "in_seurat").parameters[0].k_anchor) = 20
   ' "$src"
 )"
 
