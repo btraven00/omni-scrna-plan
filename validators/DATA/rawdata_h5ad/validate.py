@@ -22,9 +22,11 @@ def validate_file(path):
                     f"string-arrays for rhdf5::h5read): {', '.join(bad)}")
     except Exception as e:
         print(f"FAIL\t{path}\t{e}")
-        return
+        return False
     print(f"OK\t{path}")
+    return True
 
 
-for arg in sys.argv[1:]:
-    validate_file(arg)
+# ob reads pass/fail from the exit code
+ok = [validate_file(arg) for arg in sys.argv[1:]]
+sys.exit(0 if all(ok) else 1)

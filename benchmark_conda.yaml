@@ -84,6 +84,9 @@ stages:
     outputs:
       - id: rawdata_h5ad
         path: "{module.id}.h5ad"
+        validators:
+          - script: validators/DATA/rawdata_h5ad/validate.py
+          - script: validators/DATA/rawdata_h5ad/sparse.py
       - id: rawdata_clusters_truth
         path: "{module.id}.clusters_truth.tsv"
       - id: rawdata_clusters_truth_num
@@ -173,6 +176,8 @@ stages:
     outputs:
       - id: normalized_h5
         path: "{module.id}_normalized.h5"
+        validators:
+          - script: validators/NORM/normalized_h5/validate.py
     modules:
       - id: nr_scrapper
         provides: {nonneg: "yes"}
@@ -212,6 +217,8 @@ stages:
     outputs:
       - id: normalized_selected_h5
         path: "{module.id}_normalized_selected.h5"
+        validators:
+          - script: validators/FEAT/normalized_selected_h5/validate.py
     modules:
       - id: fe_seurat
         requires: {runs_feat: "yes"}
@@ -266,6 +273,8 @@ stages:
     outputs:
       - id: embedding_tsv
         path: "{module.id}_embedding.tsv"
+        validators:
+          - script: validators/PCA/embedding_tsv/validate.R
       - id: loadings_tsv
         path: "{module.id}_loadings.tsv"
     modules:
