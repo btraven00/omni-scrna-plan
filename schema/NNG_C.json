@@ -1,5 +1,5 @@
 {
-  "stage": "NNG-C",
+  "stage": "NNG_C",
   "version": "0.1.0",
   "benchmark": "omni-scrna/split-stages-plan",
   "args": [

@@ -1,5 +1,5 @@
 {
-  "stage": "CLUST-C",
+  "stage": "CLUST_C",
   "version": "0.1.0",
   "benchmark": "omni-scrna/split-stages-plan",
   "args": [
