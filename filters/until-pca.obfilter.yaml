@@ -1,0 +1,13 @@
+# Run the benchmark up to PCA: PCA plus every stage that feeds it
+# (DATA, FILT, NORM, FEAT). Everything downstream is cut.
+#
+# OBEditor: Filter tab → presets → until-pca.obfilter.yaml (reads `until`)
+# ob CLI:   ob run benchmark_conda.yaml --filter filters/until-pca.obfilter.yaml
+#           (reads `picks`; `until` alone selects nothing) or --until PCA
+until: PCA
+picks:
+  DATA: {'*': all}
+  FILT: {'*': all}
+  NORM: {'*': all}
+  FEAT: {'*': all}
+  PCA:  {'*': all}

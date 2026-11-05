@@ -1,0 +1,9 @@
+# until-pca without the GPU arms: --filter skips requires_capabilities pruning (ob main f9053711).
+# Usage: ob run benchmark_conda.yaml --filter filters/until-pca-cpu.yaml
+# 44d965bf = d_integration's be1 combo; it changes if that parameter set changes.
+picks:
+  DATA: {d_integration: ["44d965bf"]}
+  FILT: {'*': first}
+  NORM: {'*': first}
+  FEAT: {'*': first}
+  PCA:  {pc_scanpy: first, pc_scrapper: first, pc_rcppml: first, pc_rcppml_nmf: first}
