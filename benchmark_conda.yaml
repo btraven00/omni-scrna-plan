@@ -5,7 +5,7 @@ benchmarker: "Mark Robinson <mark.robinson@mls.uzh.ch>"
 
 # Benchmark configuration
 version: "0.2.0"
-api_version: "0.4.0"
+api_version: "0.8.0"
 
 provenance:
   canonical_url: https://raw.githubusercontent.com/omni-scrna/split-stages-plan/refs/heads/main/benchmark_conda.yaml
@@ -80,6 +80,7 @@ software_environments:
 
 stages:
   - id: DATA
+    provides: [runs_feat, runs_pca, runs_intg8]
     outputs:
       - id: rawdata_h5ad
         path: "{module.id}.h5ad"
@@ -91,6 +92,7 @@ stages:
         path: "{module.id}_properties.yaml"
     modules:
       - id: d_integration
+        provides: {runs_feat: "yes", runs_pca: "yes", runs_intg8: "yes"}
         name: "R-based dataset downloads (integration collection)"
         software_environment: r_conda
         repository:
@@ -106,6 +108,7 @@ stages:
             labels_var: clusters.truth
             sample_var: study
       - id: d_pca
+        provides: {runs_pca: "yes"}
         name: "R-based dataset downloads (PCA collection)"
         software_environment: r_conda
         repository:
@@ -117,6 +120,7 @@ stages:
             labels_var: cell_line
             sample_var: null
       - id: d_feat_sel
+        provides: {runs_feat: "yes"}
         name: "R-based dataset downloads (feature selection collection)"
         software_environment: r_conda
         repository:
@@ -128,6 +132,7 @@ stages:
             labels_var: Sample
             sample_var: Sample
       - id: d_annotation
+        provides: {runs_feat: "yes"}
         name: "R-based dataset downloads (cell type annotation collection)"
         software_environment: r_conda
         repository:
@@ -160,6 +165,7 @@ stages:
           entrypoint: filter
 
   - id: NORM
+    provides: [nonneg]
     inputs:
       - rawdata_h5ad
       - filtered_cellids
@@ -169,6 +175,7 @@ stages:
         path: "{module.id}_normalized.h5"
     modules:
       - id: nr_scrapper
+        provides: {nonneg: "yes"}
         name: "scrapper-based normalization"
         software_environment: "scrapper"
         repository:
@@ -207,10 +214,9 @@ stages:
         path: "{module.id}_normalized_selected.h5"
     modules:
       - id: fe_seurat
+        requires: {runs_feat: "yes"}
         name: "seurat-based gene selection"
         software_environment: "seurat"
-        exclude:
-          - d_pca
         repository:
           url: https://github.com/omni-scrna/seurat
           commit: a83045e
@@ -219,10 +225,9 @@ stages:
           - selection_type: ["seurat_vst", "seurat_vst_batch", "mixhvg"]
             number_selected: 2000
       - id: fe_scrapper
+        requires: {runs_feat: "yes"}
         name: "scrapper-based gene selection"
         software_environment: "scrapper"
-        exclude:
-          - d_pca
         repository:
           url: https://github.com/omni-scrna/scrapper
           commit: f201861
@@ -230,10 +235,9 @@ stages:
         parameters:
           - number_selected: 2000
       - id: fe_scanpy
+        requires: {runs_feat: "yes"}
         name: "scanpy-based gene selection"
         software_environment: "scanpy"
-        exclude:
-          - d_pca
         repository:
           url: https://github.com/omni-scrna/scanpy
           commit: 3076328
@@ -243,10 +247,9 @@ stages:
             number_selected: 2000
           #- flavor: ["pearson_residuals", "scanpy_seurat", "scanpy_cell_ranger"]
       - id: fe_sam
+        requires: {runs_feat: "yes"}
         name: "SAM gene selection"
         software_environment: "sam"
-        exclude:
-          - d_pca
         repository:
           url: https://github.com/omni-scrna/sam
           commit: 6e736b3
@@ -267,11 +270,9 @@ stages:
         path: "{module.id}_loadings.tsv"
     modules:
       - id: pc_scanpy
+        requires: {runs_pca: "yes"}
         name: "scanpy PCA"
         software_environment: "scanpy"
-        exclude:
-          - d_feat_sel
-          - d_annotation
         repository:
           url: https://github.com/omni-scrna/scanpy
           commit: b41bf43
@@ -286,11 +287,9 @@ stages:
             n_components: 50
             random_seed: 42
       - id: pc_scrapper
+        requires: {runs_pca: "yes"}
         name: "scrapper PCA"
         software_environment: "scrapper"
-        exclude:
-          - d_feat_sel
-          - d_annotation
         repository:
           url: https://github.com/omni-scrna/scrapper
           commit: d641869
@@ -305,12 +304,10 @@ stages:
       # are the sparse-input solvers. covariance-eigh is the exact control
       # randomized-halko is seed-sensitive.
       - id: pc_rapids
+        requires: {runs_pca: "yes"}
         name: "rapids-singlecell PCA (GPU)"
         software_environment: "rapids_singlecell"
         requires_capabilities: [gpu]
-        exclude:
-          - d_feat_sel
-          - d_annotation
         repository:
           url: https://github.com/omni-scrna/rapids-singlecell
           commit: b28deb6
@@ -322,11 +319,9 @@ stages:
             dtype: float64
 
       - id: pc_rcppml
+        requires: {runs_pca: "yes"}
         name: "RcppML truncated SVD (cpu)"
         software_environment: "rcppml"
-        exclude:
-          - d_feat_sel
-          - d_annotation
         repository:
           url: https://github.com/omni-scrna/rcppml
           commit: 47a7dd4
@@ -341,18 +336,14 @@ stages:
       # it unchanged.
       # But, NMF is only defined on non-negative input; needs extra excludes.
       - id: pc_rcppml_nmf
+        requires: {nonneg: "yes", runs_pca: "yes"}
         name: "RcppML NMF (cpu)"
         software_environment: "rcppml"
-        exclude:
-          - d_feat_sel
-          - d_annotation
-          # NMF is only defined on non-negative input, 
-          # That rules out the Pearson-residual normalisations:
-          # nr_seurat (sctransformv2) and nr_scanpy's
-          # analyticalPearsonResiduals. 
-          # TODO: Split nr_scanpy's two flavors into separate module ids to get the log one.
-          - nr_seurat
-          - nr_scanpy
+        # NMF is only defined on non-negative input, 
+        # That rules out the Pearson-residual normalisations:
+        # nr_seurat (sctransformv2) and nr_scanpy's
+        # analyticalPearsonResiduals. 
+        # TODO: Split nr_scanpy's two flavors into separate module ids to get the log one.
         repository:
           url: https://github.com/omni-scrna/rcppml
           commit: 47a7dd4
@@ -365,12 +356,10 @@ stages:
       # GPU variants.
       # We split so that the DAG can run on GPU-less hosts
       - id: pc_rcppml_gpu
+        requires: {runs_pca: "yes"}
         name: "RcppML truncated SVD (GPU)"
         software_environment: "rcppml"
         requires_capabilities: [gpu]
-        exclude:
-          - d_feat_sel
-          - d_annotation
         repository:
           url: https://github.com/omni-scrna/rcppml
           commit: 47a7dd4
@@ -382,14 +371,10 @@ stages:
             backend: gpu
 
       - id: pc_rcppml_nmf_gpu
+        requires: {nonneg: "yes", runs_pca: "yes"}
         name: "RcppML NMF (GPU)"
         requires_capabilities: [gpu]
         software_environment: "rcppml"
-        exclude:
-          - d_feat_sel
-          - d_annotation
-          - nr_seurat
-          - nr_scanpy
         repository:
           url: https://github.com/omni-scrna/rcppml
           commit: 47a7dd4
@@ -611,13 +596,11 @@ stages:
         path: "{module.id}_corrected.tsv"
     modules:
       - id: in_harmony
+        requires: {runs_intg8: "yes"}
         name: "Harmony batch correction"
         software_environment: "integrate"
         exclude:
           - cntfct
-          - d_pca
-          - d_annotation
-          - d_feat_sel
         repository:
           url: https://github.com/omni-scrna/7-integrate
           commit: 52c6c64
@@ -625,12 +608,10 @@ stages:
         parameters:
           - theta: [0.1, 2]
       - id: in_seurat
+        requires: {runs_intg8: "yes"}
         name: "Seurat IntegrateLayers batch correction"
         software_environment: "seurat"
         exclude:
-          - d_pca
-          - d_annotation
-          - d_feat_sel
           - cntfct
         repository:
           url: https://github.com/omni-scrna/seurat
@@ -640,12 +621,10 @@ stages:
           - method: [rpca]
             k_anchor: [5, 20]
       - id: in_scanorama
+        requires: {runs_intg8: "yes"}
         name: "Scanorama batch correction"
         software_environment: "integrate-py"
         exclude:
-          - d_pca
-          - d_annotation
-          - d_feat_sel
           - cntfct
         repository:
           url: https://github.com/omni-scrna/7-integrate-py
