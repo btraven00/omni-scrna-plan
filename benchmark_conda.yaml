@@ -941,7 +941,7 @@ stages:
         software_environment: "metrics"
         repository:
           url: https://github.com/omni-scrna/metrics
-          commit: b89e434  # api-0.8.0
+          commit: 818ba5f  # api-0.8.0
           entrypoint: pca-gather
         parameters:
           - reference_module: pc_exact
@@ -959,5 +959,5 @@ stages:
         software_environment: "report"
         repository:
           url: https://github.com/omni-scrna/metrics
-          commit: b89e434  # api-0.8.0
+          commit: 818ba5f  # api-0.8.0
           entrypoint: pca-report
