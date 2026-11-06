@@ -471,8 +471,8 @@ stages:
       - id: nn_scanpy
         name: "scanpy KNN graph"
         software_environment: "scanpy"
-        exclude:
-          - cntfct
+        # exclude:   # is this needed? cntfct exclude from 65a3384, reason unknown; off for now
+        #   - cntfct
         repository:
           url: https://github.com/omni-scrna/scanpy
           commit: 754052a  # api-0.8.0: --output id=PATH
@@ -627,8 +627,8 @@ stages:
         requires: {runs_intg8: "yes"}
         name: "Harmony batch correction"
         software_environment: "integrate"
-        exclude:
-          - cntfct
+        # exclude:   # is this needed? cntfct exclude from 65a3384, reason unknown; off for now
+        #   - cntfct
         repository:
           url: https://github.com/omni-scrna/7-integrate
           commit: 52c6c64
@@ -639,8 +639,8 @@ stages:
         requires: {runs_intg8: "yes"}
         name: "Seurat IntegrateLayers batch correction"
         software_environment: "seurat"
-        exclude:
-          - cntfct
+        # exclude:   # is this needed? cntfct exclude from 65a3384, reason unknown; off for now
+        #   - cntfct
         repository:
           url: https://github.com/omni-scrna/seurat
           commit: 76f9f6c  # api-0.8.0: --output id=PATH
@@ -652,8 +652,8 @@ stages:
         requires: {runs_intg8: "yes"}
         name: "Scanorama batch correction"
         software_environment: "integrate-py"
-        exclude:
-          - cntfct
+        # exclude:   # is this needed? cntfct exclude from 65a3384, reason unknown; off for now
+        #   - cntfct
         repository:
           url: https://github.com/omni-scrna/7-integrate-py
           commit: e005eb5
