@@ -1,0 +1,14 @@
+# Slice: be1, CPU arms up to and including NNG (kNN graph).
+# Usage: ob run benchmark_conda.yaml --filter filters/until-nng-cpu.yaml
+# 44d965bf = d_integration's be1 combo; it changes if that parameter set changes.
+# --filter skips requires_capabilities pruning, so GPU arms (pc_rapids*, nn_rapids) are left out by hand.
+picks:
+  DATA: {d_integration: ["44d965bf"]}
+  FILT: {'*': first}
+  NORM: {'*': first}
+  FEAT: {'*': first}
+  PCA:  {pc_exact: first, pc_scanpy: first, pc_scrapper: first, pc_rcppml: first, pc_rcppml_nmf: first}
+  NNG:  {nn_scanpy: first}
+  # gathers expand even when unlisted; cutting every producer of a gathered id fails the DAG, so keep them
+  PCA_M: {'*': all}
+  REPORT: {'*': all}
