@@ -103,7 +103,7 @@ stages:
         software_environment: r_conda
         repository:
           url: https://github.com/omni-scrna/1-data
-          commit: 1606435  # api-0.8.0: --output id=PATH
+          commit: api-0.8.0
         parameters:
           - dataset_name: "be1"
             batch_var: Sample
@@ -119,7 +119,7 @@ stages:
         software_environment: r_conda
         repository:
           url: https://github.com/omni-scrna/1-data
-          commit: 1606435  # api-0.8.0: --output id=PATH
+          commit: api-0.8.0
         parameters:
           - dataset_name: "sc-mix"
             batch_var: null
@@ -131,7 +131,7 @@ stages:
         software_environment: r_conda
         repository:
           url: https://github.com/omni-scrna/1-data
-          commit: 1606435  # api-0.8.0: --output id=PATH
+          commit: api-0.8.0
         parameters:
           - dataset_name: "be1-subset"
             batch_var: Sample
@@ -143,7 +143,7 @@ stages:
         software_environment: r_conda
         repository:
           url: https://github.com/omni-scrna/1-data
-          commit: 1606435  # api-0.8.0: --output id=PATH
+          commit: api-0.8.0
         parameters:
           - dataset_name: "cb"
             batch_var: species
@@ -167,7 +167,7 @@ stages:
         software_environment: "scrapper"
         repository:
           url: https://github.com/omni-scrna/scrapper
-          commit: 2a83f79  # api-0.8.0: --output id=PATH
+          commit: api-0.8.0
           entrypoint: filter
 
   - id: NORM
@@ -188,14 +188,14 @@ stages:
         software_environment: "scrapper"
         repository:
           url: https://github.com/omni-scrna/scrapper
-          commit: 2a83f79  # api-0.8.0: --output id=PATH
+          commit: api-0.8.0
           entrypoint: normalize
       - id: nr_scanpy
         name: "Python-based scRNA-seq normalization methods"
         software_environment: "py_conda"
         repository:
           url: https://github.com/omni-scrna/scanpy
-          commit: 754052a  # api-0.8.0: --output id=PATH
+          commit: api-0.8.0
           entrypoint: normalize
         parameters:
           - flavor: ["log1pCP10k", "analyticalPearsonResiduals"]
@@ -204,7 +204,7 @@ stages:
         software_environment: "seurat"
         repository:
           url: https://github.com/omni-scrna/seurat
-          commit: 76f9f6c  # api-0.8.0: --output id=PATH
+          commit: api-0.8.0
           entrypoint: normalize
         parameters:
           - flavor: ["sctransformv2"]
@@ -229,7 +229,7 @@ stages:
         software_environment: "seurat"
         repository:
           url: https://github.com/omni-scrna/seurat
-          commit: 76f9f6c  # api-0.8.0: --output id=PATH
+          commit: api-0.8.0
           entrypoint: select
         parameters:
           - selection_type: ["seurat_vst", "seurat_vst_batch", "mixhvg"]
@@ -240,7 +240,7 @@ stages:
         software_environment: "scrapper"
         repository:
           url: https://github.com/omni-scrna/scrapper
-          commit: 2a83f79  # api-0.8.0: --output id=PATH
+          commit: api-0.8.0
           entrypoint: select
         parameters:
           - number_selected: 2000
@@ -250,7 +250,7 @@ stages:
         software_environment: "scanpy"
         repository:
           url: https://github.com/omni-scrna/scanpy
-          commit: 754052a  # api-0.8.0: --output id=PATH
+          commit: api-0.8.0
           entrypoint: feat-select
         parameters:
           - flavor: ["pearson_residuals", "scanpy_seurat_v3"]
@@ -262,7 +262,7 @@ stages:
         software_environment: "sam"
         repository:
           url: https://github.com/omni-scrna/sam
-          commit: e577738  # api-0.8.0: --output id=PATH
+          commit: api-0.8.0
           entrypoint: select
         parameters:
           - number_selected: 2000
@@ -287,7 +287,7 @@ stages:
         software_environment: "scanpy"
         repository:
           url: https://github.com/omni-scrna/scanpy
-          commit: 754052a  # api-0.8.0: --output id=PATH
+          commit: api-0.8.0
           entrypoint: pca
         parameters:
           - solver: [arpack]
@@ -306,7 +306,7 @@ stages:
         software_environment: "scanpy"
         repository:
           url: https://github.com/omni-scrna/scanpy
-          commit: 754052a  # api-0.8.0: --output id=PATH
+          commit: api-0.8.0
           entrypoint: pca
         parameters:
           - solver: full
@@ -320,7 +320,7 @@ stages:
         software_environment: "scrapper"
         repository:
           url: https://github.com/omni-scrna/scrapper
-          commit: 2a83f79  # api-0.8.0: --output id=PATH
+          commit: api-0.8.0
           entrypoint: pca
         parameters:
           - solver: [irlba]
@@ -338,7 +338,7 @@ stages:
         requires_capabilities: [gpu]
         repository:
           url: https://github.com/omni-scrna/rapids-singlecell
-          commit: af42fa2  # api-0.8.0: --output id=PATH
+          commit: api-0.8.0
           entrypoint: pca
         parameters:
           - solver: [covariance-eigh, randomized-halko]
@@ -352,7 +352,7 @@ stages:
         software_environment: "rcppml"
         repository:
           url: https://github.com/omni-scrna/rcppml
-          commit: c19dcc0  # api-0.8.0: --output id=PATH
+          commit: api-0.8.0
           entrypoint: pca
         parameters:
           - solver: [lanczos, krylov]
@@ -374,7 +374,7 @@ stages:
         # TODO: Split nr_scanpy's two flavors into separate module ids to get the log one.
         repository:
           url: https://github.com/omni-scrna/rcppml
-          commit: c19dcc0  # api-0.8.0: --output id=PATH
+          commit: api-0.8.0
           entrypoint: nmf
         parameters:
           - loss: [mse]
@@ -390,7 +390,7 @@ stages:
         requires_capabilities: [gpu]
         repository:
           url: https://github.com/omni-scrna/rcppml
-          commit: c19dcc0  # api-0.8.0: --output id=PATH
+          commit: api-0.8.0
           entrypoint: pca
         parameters:
           - solver: [lanczos, krylov]
@@ -405,7 +405,7 @@ stages:
         software_environment: "rcppml"
         repository:
           url: https://github.com/omni-scrna/rcppml
-          commit: c19dcc0  # api-0.8.0: --output id=PATH
+          commit: api-0.8.0
           entrypoint: nmf
         parameters:
           - loss: [mse]
@@ -475,7 +475,7 @@ stages:
         #   - cntfct
         repository:
           url: https://github.com/omni-scrna/scanpy
-          commit: 754052a  # api-0.8.0: --output id=PATH
+          commit: api-0.8.0
           entrypoint: knn
         parameters:
           - n_neighbors: 15
@@ -487,7 +487,7 @@ stages:
         requires_capabilities: [gpu]
         repository:
           url: https://github.com/omni-scrna/rapids-singlecell
-          commit: af42fa2  # api-0.8.0: --output id=PATH
+          commit: api-0.8.0
           entrypoint: knn
         parameters:
           # rsc.pp.neighbors at the cuVS default
@@ -542,7 +542,7 @@ stages:
         software_environment: "scanpy"
         repository:
           url: https://github.com/omni-scrna/scanpy
-          commit: 754052a  # api-0.8.0: --output id=PATH
+          commit: api-0.8.0
           entrypoint: cluster
         parameters:
           - flavor: ["igraph", "leidenalg"]
@@ -553,7 +553,7 @@ stages:
         software_environment: "seurat"
         repository:
           url: https://github.com/omni-scrna/seurat
-          commit: 76f9f6c  # api-0.8.0: --output id=PATH
+          commit: api-0.8.0
           entrypoint: cluster
         parameters:
           - resolution: [0.5, 1.0]
@@ -573,7 +573,7 @@ stages:
         software_environment: "scrapper"
         repository:
           url: https://github.com/omni-scrna/scrapper
-          commit: 2a83f79  # api-0.8.0: --output id=PATH
+          commit: api-0.8.0
           entrypoint: cluster
         parameters:
           - flavor: ["leiden_modularity", "leiden_cpm", "multilevel", "walktrap"]
@@ -586,7 +586,7 @@ stages:
         requires_capabilities: [gpu]
         repository:
           url: https://github.com/omni-scrna/rapids-singlecell
-          commit: af42fa2  # api-0.8.0: --output id=PATH
+          commit: api-0.8.0
           entrypoint: cluster
         parameters:
           - method: "rapids-leiden"
@@ -643,7 +643,7 @@ stages:
         #   - cntfct
         repository:
           url: https://github.com/omni-scrna/seurat
-          commit: 76f9f6c  # api-0.8.0: --output id=PATH
+          commit: api-0.8.0
           entrypoint: integrate
         parameters:
           - method: [rpca]
@@ -710,7 +710,7 @@ stages:
         software_environment: "scanpy"
         repository:
           url: https://github.com/omni-scrna/scanpy
-          commit: 754052a  # api-0.8.0: --output id=PATH
+          commit: api-0.8.0
           entrypoint: knn
         parameters:
           - n_neighbors: 15
@@ -729,7 +729,7 @@ stages:
         software_environment: "scanpy"
         repository:
           url: https://github.com/omni-scrna/scanpy
-          commit: 754052a  # api-0.8.0: --output id=PATH
+          commit: api-0.8.0
           entrypoint: cluster
         parameters:
           - flavor: ["igraph", "leidenalg"]
@@ -769,7 +769,7 @@ stages:
         requires_capabilities: [gpu]
         repository:
           url: https://github.com/omni-scrna/rapids-singlecell
-          commit: af42fa2  # api-0.8.0: --output id=PATH
+          commit: api-0.8.0
           entrypoint: cluster_embedding
         parameters:
           - method: "rapids-kmeans"
@@ -943,7 +943,7 @@ stages:
         software_environment: "metrics"
         repository:
           url: https://github.com/omni-scrna/metrics
-          commit: e38e883  # api-0.8.0
+          commit: api-0.8.0
           entrypoint: pca-gather
         parameters:
           - reference_module: pc_exact
@@ -964,5 +964,5 @@ stages:
         software_environment: "report"
         repository:
           url: https://github.com/omni-scrna/metrics
-          commit: e38e883  # api-0.8.0
+          commit: api-0.8.0
           entrypoint: pca-report
