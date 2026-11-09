@@ -933,13 +933,11 @@ stages:
     inputs:
       - normalized_selected_h5
     gather:
-      - from: embedding_tsv
-        group_by: FEAT
-      - from: loadings_tsv
-        group_by: FEAT
+      group_by: FEAT
+      from: [embedding_tsv, loadings_tsv]
     outputs:
       - id: pca_metrics_tsv
-        path: "{FEAT}_pca_metrics.tsv"
+        path: "{module.id}_pca_metrics.tsv"
     modules:
       - id: pca_metrics_py
         name: "PCA accuracy vs exact reference"
