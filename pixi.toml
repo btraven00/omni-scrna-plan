@@ -11,7 +11,7 @@ python = "*"
 h5py = "*"
 scanpy = "*"
 
-# Plan validation: omnibenchmark pinned to a main commit (api 0.8.0; 2d601f30 = #409 gather --output).
+# Plan validation: omnibenchmark TEMPORARILY pinned to btraven00 integ/0.8 (main + #410 #406 #415 #416); back to omnibenchmark main once they merge.
 [feature.plan.dependencies]
 python = ">=3.12,<3.14"
 pip = "*"
@@ -24,7 +24,7 @@ conda = "*"
 go-yq = "*"
 
 [feature.plan.pypi-dependencies]
-omnibenchmark = { git = "https://github.com/omnibenchmark/omnibenchmark.git", rev = "2d601f30" }
+omnibenchmark = { git = "https://github.com/btraven00/omnibenchmark.git", branch = "integ/0.8" }
 
 [feature.plan.tasks]
 validate-plan = "ob validate plan benchmark_conda.yaml"
