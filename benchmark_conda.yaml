@@ -495,12 +495,13 @@ stages:
             random_seed: 42
             flavor: "rapids"
 
+  # GRAPH_M: graph metrics, one JSON per kNN graph.
   - id: GRAPH_M
     inputs:
       - neighbors_h5
       - rawdata_clusters_truth
     outputs:
-      - id: graph_metrics
+      - id: graph_metrics_json
         path: "{module.id}_graph_metrics.json"
     modules:
       - id: nn_metrics_r
@@ -508,7 +509,63 @@ stages:
         software_environment: "metrics"
         repository:
           url: https://github.com/omni-scrna/metrics
-          commit: 2b9b1a3
+          commit: api-0.8.0
+          entrypoint: graph-r
+
+  # GRAPH_C (gather): one table per dataset of every graph's metrics, one
+  # lineage column per stage. obkit's collector reads the gather manifest.
+  - id: GRAPH_C
+    gather:
+      - from: graph_metrics_json
+        group_by: DATA
+    outputs:
+      - id: graph_metrics_tsv
+        path: "{DATA}_graph_metrics.tsv"
+    modules:
+      - id: collect_tsv
+        name: "obkit collector: members to one TSV"
+        software_environment: "metrics"
+        repository:
+          url: https://github.com/omnibenchmark/obkit
+          commit: feat/collector
+          entrypoint: collect
+
+  # GRAPH_M batched, for comparison with the per-graph GRAPH_M above. GRAPH_G
+  # only groups: one list of kNN graphs per FEAT node (<= 11 graphs). GRAPH_MB
+  # is a scatter below it, so the truth labels resolve from its lineage, and
+  # one R process scores the whole list (libraries load once).
+  - id: GRAPH_G
+    gather:
+      - from: neighbors_h5
+        group_by: FEAT
+    outputs:
+      - id: graph_list_tsv
+        path: "{FEAT}_graphs.tsv"
+    modules:
+      - id: list_members
+        name: "obkit collector: member table"
+        software_environment: "metrics"
+        repository:
+          url: https://github.com/omnibenchmark/obkit
+          commit: feat/collector
+          entrypoint: collect
+        parameters:
+          - mode: members
+
+  - id: GRAPH_MB
+    inputs:
+      - graph_list_tsv
+      - rawdata_clusters_truth
+    outputs:
+      - id: graph_batch_tsv
+        path: "{module.id}_graph_metrics.tsv"
+    modules:
+      - id: nn_metrics_batch_r
+        name: "Graph metrics in R, one process per graph list"
+        software_environment: "metrics"
+        repository:
+          url: https://github.com/omni-scrna/metrics
+          commit: api-0.8.0
           entrypoint: graph-r
 
   - id: GEOM_M
@@ -922,21 +979,20 @@ stages:
           commit: 2b9b1a3
           entrypoint: normalization-r
 
-  # PCA_M: every PCA arm vs pc_exact on the same input matrix. group_by groups by
-  # ancestor MODULE id, so a FEAT group would mix NORM branches; the module pairs
-  # members with their reference by lineage (path prefix up to FEAT) instead.
+  # PCA_M: every PCA arm vs pc_exact on the same input matrix. ob api 0.8.0 groups
+  # by node, so one gather per FEAT node: exactly one pc_exact per group.
   # embedding_tsv has other producers (ISOMAP, CNTFCT, RDIMR); the module skips them.
   - id: PCA_M
     resources:
       cores: 16   # parallel-analysis shuffles run one per core
     gather:
       - from: embedding_tsv
-        group_by: DATA
+        group_by: FEAT
       - from: loadings_tsv
-        group_by: DATA
+        group_by: FEAT
     outputs:
       - id: pca_metrics_tsv
-        path: "{DATA}_pca_metrics.tsv"
+        path: "{FEAT}_pca_metrics.tsv"
     modules:
       - id: pca_metrics_py
         name: "PCA accuracy vs exact reference"
