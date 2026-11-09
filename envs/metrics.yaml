@@ -10,6 +10,8 @@ dependencies:
   - h5py *
   - numpy <2.5  # numba (scib-metrics -> pynndescent/umap-learn) has no numpy>=2.5 support yet
   - polars *
+  - scipy *
+  - threadpoolctl *  # pca-gather: one BLAS thread per parallel-analysis worker
   - r-base >=4.5,<4.6.0
   - r-argparser *
   - r-jsonlite *
