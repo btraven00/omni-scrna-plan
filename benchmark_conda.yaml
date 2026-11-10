@@ -439,6 +439,10 @@ stages:
             random_seed: 42
 
   - id: EMBED_M
+    # ~12 GB and 4 min per 28k-cell embedding (all-pairs poem metrics): cores is the only
+    # concurrency lever here, 4 of 32 = 8 at once. Not a memory cap; revisit before a --cores 160 run.
+    resources:
+      cores: 4
     inputs:
       - embedding_tsv
       - rawdata_clusters_truth
@@ -451,7 +455,7 @@ stages:
         software_environment: "metrics"
         repository:
           url: https://github.com/omni-scrna/metrics
-          commit: 2b9b1a3
+          commit: api-0.8.0
           entrypoint: embedding-r
       #- id: em-metrics-py
       #  name: "Embedding metrics in python"
@@ -610,7 +614,7 @@ stages:
         software_environment: "metrics"
         repository:
           url: https://github.com/omni-scrna/metrics
-          commit: 2b9b1a3
+          commit: api-0.8.0
           entrypoint: cluster-r
 
   - id: INTG8
@@ -920,7 +924,7 @@ stages:
         software_environment: "metrics"
         repository:
           url: https://github.com/omni-scrna/metrics
-          commit: 2b9b1a3
+          commit: api-0.8.0
           entrypoint: normalization-r
 
   # PCA_M: every PCA arm vs pc_exact on the same input matrix. ob api 0.8.0 groups

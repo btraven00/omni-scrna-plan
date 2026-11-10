@@ -1,0 +1,17 @@
+# Slice: be1, CPU arms through CLUST (first combo per arm) and CLUST_M, GRAPH_M per graph,
+# PCA_M per FEAT node and the REPORT.
+# Usage: ob run benchmark_conda.yaml --filter filters/until-clust-cpu.yaml
+# 44d965bf = d_integration's be1 combo; it changes if that parameter set changes.
+# --filter skips requires_capabilities pruning, so GPU arms (pc_rapids*, nn_rapids) are left out by hand.
+picks:
+  DATA: {d_integration: ["44d965bf"]}
+  FILT: {'*': first}
+  NORM: {'*': first}
+  FEAT: {'*': first}
+  PCA:  {pc_exact: first, pc_scanpy: first, pc_scrapper: first, pc_rcppml: first, pc_rcppml_nmf: first}
+  NNG:  {nn_scanpy: first}
+  CLUST: {cl_scanpy: first, cl_seurat: first, cl_scrapper: first}
+  CLUST_M: {"*": all}
+  GRAPH_M: {'*': all}
+  PCA_M: {'*': all}
+  REPORT: {'*': all}
